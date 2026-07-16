@@ -4,6 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <DefaultItemExcludes>$(DefaultItemExcludes);artifacts\**;App_Data\**;wwwroot\uploads\**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
