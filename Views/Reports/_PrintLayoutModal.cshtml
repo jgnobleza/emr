@@ -1,0 +1,202 @@
+@model medrec.ViewModels.PrintLayoutEditorViewModel
+@using medrec.ViewModels
+@using System.Text
+
+@{
+    var form = Model.Form;
+    var blocks = form.Blocks;
+    var layoutJson = PrintLayoutFormModel.SerializeBlocks(blocks);
+    var layoutEncoded = Convert.ToBase64String(Encoding.UTF8.GetBytes(layoutJson));
+    string Field(string name) => $"{Model.Prefix}.{name}";
+    string FieldId(string name) => $"{Model.Prefix}_{name}";
+    string PreviewClass(string? url) => string.IsNullOrWhiteSpace(url) ? "layout-logo-preview d-none" : "layout-logo-preview";
+    string SampleText(PrintLayoutBlock block) => block.Type switch
+    {
+        "Text" => string.IsNullOrWhiteSpace(block.Text) ? "Text box" : block.Text,
+        "Line" => "",
+        "Image" => string.IsNullOrWhiteSpace(block.ImageUrl) ? "Image" : "",
+        _ => FieldText(block.Key)
+    };
+    string FieldText(string key) => key switch
+    {
+        "logo" => "Logo",
+        "clinic" => $"{form.ClinicName}\n{form.DoctorName}\nLicense No. {form.LicenseNumber}\n{form.ClinicAddress}\n{form.ClinicSchedule}",
+        "title" => form.DocumentTitle,
+        "patient" => form.DocumentType == "Diagnosis" ? "Patient\nAge\nCheck up date\nDoctor" : "Patient\nDate",
+        "body" => form.DocumentType == "Diagnosis" ? "Diagnosis" : "Medication\nDosage\nFrequency\nDuration",
+        "notes" => form.DocumentType == "Diagnosis" ? "Notes" : "Instructions",
+        "signatureImage" => "Doctor signature image",
+        "signature" => $"{form.SignatoryName}\nLicense No. {form.LicenseNumber}",
+        _ => key
+    };
+}
+
+<div class="modal fade" id="@Model.ModalId" tabindex="-1" aria-labelledby="@(Model.ModalId)Label" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title fs-5" id="@(Model.ModalId)Label">@Model.Title</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form action="@Url.Action(Model.Action, Model.Controller)" method="post" enctype="multipart/form-data" data-print-layout-form data-layout-upload-url="@Url.Action("UploadLayoutImage", Model.Controller)">
+                @Html.AntiForgeryToken()
+                <input type="hidden" name="@Field("DocumentType")" value="@form.DocumentType">
+                <input type="hidden" name="@Field("LayoutEncoded")" value="@layoutEncoded" data-layout-json-input data-layout-json-encoded="true">
+                <div class="modal-body">
+                    <div class="layout-editor-grid">
+                        <div class="layout-editor-fields">
+                            <div class="form-grid">
+                                <div>
+                                    <label for="@FieldId("DocumentTitle")" class="form-label">Document Title</label>
+                                    <input id="@FieldId("DocumentTitle")" name="@Field("DocumentTitle")" value="@form.DocumentTitle" class="form-control">
+                                </div>
+                                <div>
+                                    <label for="@FieldId("ClinicName")" class="form-label">Clinic Name</label>
+                                    <input id="@FieldId("ClinicName")" name="@Field("ClinicName")" value="@form.ClinicName" class="form-control">
+                                </div>
+                                <div>
+                                    <label for="@FieldId("ClinicSchedule")" class="form-label">Clinic Schedule</label>
+                                    <input id="@FieldId("ClinicSchedule")" name="@Field("ClinicSchedule")" value="@form.ClinicSchedule" class="form-control">
+                                </div>
+                                <div>
+                                    <label for="@FieldId("ClinicAddress")" class="form-label">Clinic Address</label>
+                                    <input id="@FieldId("ClinicAddress")" name="@Field("ClinicAddress")" value="@form.ClinicAddress" class="form-control">
+                                </div>
+                                <div>
+                                    <label for="@FieldId("Logo")" class="form-label">Logo</label>
+                                    <input id="@FieldId("Logo")" name="@Field("Logo")" type="file" accept="image/*" class="form-control" data-logo-input>
+                                </div>
+                                <div>
+                                    <label for="@FieldId("LogoUrl")" class="form-label">Logo URL</label>
+                                    <input id="@FieldId("LogoUrl")" name="@Field("LogoUrl")" value="@form.LogoUrl" class="form-control" data-logo-url-input>
+                                </div>
+                                <input name="@Field("DoctorName")" type="hidden" value="@form.DoctorName">
+                                <input name="@Field("LicenseNumber")" type="hidden" value="@form.LicenseNumber">
+                                <input name="@Field("SignatoryName")" type="hidden" value="@form.SignatoryName">
+                                <input name="@Field("SignatoryTitle")" type="hidden" value="@form.SignatoryTitle">
+                                <input name="@Field("LogoPosition")" type="hidden" value="@form.LogoPosition">
+                                <input name="@Field("DetailsAlignment")" type="hidden" value="@form.DetailsAlignment">
+                            </div>
+
+                            <div class="system-alert">Doctor name, specialty, license, contact number, and signature are managed by each doctor under My Settings.</div>
+
+                            <div class="layout-logo-field">
+                                <img class="@PreviewClass(form.LogoUrl)" src="@form.LogoUrl" alt="Logo preview" data-logo-preview>
+                                <div class="layout-logo-empty @(string.IsNullOrWhiteSpace(form.LogoUrl) ? "" : "d-none")" data-logo-preview-empty>Logo</div>
+                            </div>
+
+                            <div class="layout-field-restore">
+                                <label class="form-label">Fields</label>
+                                <div class="layout-field-restore-controls">
+                                    <select class="form-select" data-layout-field-select></select>
+                                    <button class="btn btn-outline-primary" type="button" data-add-layout-field>Add field</button>
+                                </div>
+                            </div>
+
+                            <div class="layout-builder-tools">
+                                <button class="btn btn-outline-primary" type="button" data-add-layout-element="Text">Add text</button>
+                                <button class="btn btn-outline-primary" type="button" data-add-layout-element="Line">Add line</button>
+                                <button class="btn btn-outline-primary" type="button" data-add-layout-element="Image">Add image</button>
+                                <button class="btn btn-outline-primary" type="button" data-add-doctor-signature>Add doctor signature</button>
+                                <button class="btn btn-outline-primary" type="button" data-add-signature-details>Add signature details</button>
+                                <input class="d-none" type="file" accept="image/*" data-layout-image-upload>
+                            </div>
+
+                            <div class="layout-block-controls">
+                                <div>
+                                    <label class="form-label">Element</label>
+                                    <select class="form-select" data-block-select>
+                                        @foreach (var block in blocks)
+                                        {
+                                            <option value="@block.Key">@block.Label</option>
+                                        }
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="form-label">X</label>
+                                    <input class="form-control" type="number" step="any" data-block-prop="x">
+                                </div>
+                                <div>
+                                    <label class="form-label">Y</label>
+                                    <input class="form-control" type="number" step="any" data-block-prop="y">
+                                </div>
+                                <div>
+                                    <label class="form-label">Width</label>
+                                    <input class="form-control" type="number" step="any" data-block-prop="width">
+                                </div>
+                                <div>
+                                    <label class="form-label">Height</label>
+                                    <input class="form-control" type="number" step="any" data-block-prop="height">
+                                </div>
+                                <div>
+                                    <label class="form-label">Font</label>
+                                    <input class="form-control" type="number" step="1" data-block-prop="fontSize">
+                                </div>
+                                <div>
+                                    <label class="form-label">Align</label>
+                                    <select class="form-select" data-block-prop="textAlign">
+                                        <option>Left</option>
+                                        <option>Center</option>
+                                        <option>Right</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="form-label">Weight</label>
+                                    <select class="form-select" data-block-prop="fontWeight">
+                                        <option>Normal</option>
+                                        <option>Bold</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="form-label">Line</label>
+                                    <input class="form-control" type="number" min="1" max="12" step="1" data-block-prop="lineWidth">
+                                </div>
+                                <label class="layout-visible-check">
+                                    <input type="checkbox" data-block-visible>
+                                    <span>Visible</span>
+                                </label>
+                                <button class="btn btn-outline-secondary" type="button" data-delete-layout-element>Delete</button>
+                                <button class="btn btn-outline-secondary" type="button" data-reset-layout>Reset</button>
+                            </div>
+
+                            <div class="layout-text-control">
+                                <label class="form-label">Text / Image URL</label>
+                                <textarea class="form-control" rows="3" data-block-text></textarea>
+                            </div>
+                        </div>
+
+                        <div class="layout-builder-shell">
+                            <div class="layout-builder-canvas" data-layout-builder data-document-type="@form.DocumentType">
+                                @foreach (var block in blocks)
+                                {
+                                    <div class="layout-builder-block layout-builder-block-@block.Type.ToLowerInvariant() @(block.IsVisible ? "" : "is-hidden")" style="@block.Style" data-builder-block="@block.Key">
+                                        @if (block.Type == "Line")
+                                        {
+                                            <span class="builder-line" style="border-top-width:@(block.LineWidth)px"></span>
+                                        }
+                                        else if (block.Type == "Image" && !string.IsNullOrWhiteSpace(block.ImageUrl))
+                                        {
+                                            <img src="@block.ImageUrl" alt="@block.Label">
+                                        }
+                                        else if (block.Key == "logo" && !string.IsNullOrWhiteSpace(form.LogoUrl))
+                                        {
+                                            <img src="@form.LogoUrl" alt="Logo preview">
+                                        }
+                                        else
+                                        {
+                                            <span>@SampleText(block)</span>
+                                        }
+                                    </div>
+                                }
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancel</button>
+                    <button class="btn btn-primary" type="submit">Save layout</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

@@ -1,0 +1,72 @@
+@model medrec.ViewModels.DashboardViewModel
+
+@{
+    ViewData["Title"] = "Dashboard";
+}
+
+<section class="page-heading">
+    <div>
+        <h1>Dashboard</h1>
+    </div>
+    <a class="btn btn-primary" asp-controller="Patients" asp-action="Index" asp-route-addPatient="true">Add patient</a>
+</section>
+
+@if (!string.IsNullOrWhiteSpace(Model.DataNotice))
+{
+    <div class="system-alert">@Model.DataNotice</div>
+}
+
+<section class="toolbar-panel dashboard-search">
+    <input class="form-control" type="search" placeholder="Search patient" data-table-search>
+</section>
+
+<section class="panel">
+    <div class="table-responsive">
+        <table class="table app-table patient-table" data-sortable-table>
+            <thead>
+            <tr>
+                <th><button class="table-sort" type="button" data-sort-column="0" data-sort-type="text">Patient</button></th>
+                <th><button class="table-sort" type="button" data-sort-column="1" data-sort-type="number">Age</button></th>
+                <th><button class="table-sort" type="button" data-sort-column="2" data-sort-type="text">Civil Status</button></th>
+                <th><button class="table-sort" type="button" data-sort-column="3" data-sort-type="text">Contact No.</button></th>
+                <th><button class="table-sort" type="button" data-sort-column="4" data-sort-type="number">LMP</button></th>
+                <th><button class="table-sort" type="button" data-sort-column="5" data-sort-type="number">AOG</button></th>
+                <th><button class="table-sort" type="button" data-sort-column="6" data-sort-type="number">EDD</button></th>
+                <th></th>
+            </tr>
+            </thead>
+            <tbody>
+            @foreach (var patient in Model.Patients)
+            {
+                var lmpSort = patient.LastMenstrualPeriod?.DayNumber ?? int.MaxValue;
+                var aogSort = patient.LastMenstrualPeriod.HasValue
+                    ? DateOnly.FromDateTime(DateTime.Today).DayNumber - patient.LastMenstrualPeriod.Value.DayNumber
+                    : int.MaxValue;
+                var eddSort = patient.EstimatedDueDate?.DayNumber ?? int.MaxValue;
+                <tr class="patient-card" data-status="@patient.SyncStatus.ToLowerInvariant()">
+                    <td data-sort-value="@patient.FullName">
+                        <div class="patient-cell">
+                            @if (!string.IsNullOrWhiteSpace(patient.PhotoUrl))
+                            {
+                                <img class="avatar avatar-img" src="@patient.PhotoUrl" alt="@patient.FullName">
+                            }
+                            else
+                            {
+                                <div class="avatar">@patient.FullName[..1]</div>
+                            }
+                            <strong>@patient.FullName</strong>
+                        </div>
+                    </td>
+                    <td data-sort-value="@patient.Age">@patient.Age</td>
+                    <td data-sort-value="@patient.CivilStatus">@patient.CivilStatus</td>
+                    <td data-sort-value="@patient.ContactNumber">@patient.ContactNumber</td>
+                    <td data-sort-value="@lmpSort">@(patient.LastMenstrualPeriod?.ToString("MMM d, yyyy") ?? "-")</td>
+                    <td data-sort-value="@aogSort">@patient.AgeOfGestationLabel</td>
+                    <td data-sort-value="@eddSort">@patient.EstimatedDueDateLabel</td>
+                    <td><a class="btn btn-outline-primary" asp-controller="Records" asp-action="Index" asp-route-patientId="@patient.Id">Open</a></td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+</section>

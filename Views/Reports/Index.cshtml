@@ -1,0 +1,150 @@
+@model medrec.ViewModels.ReportsPageViewModel
+@{
+    ViewData["Title"] = "Reports";
+    string CheckUpLabel(medrec.Models.LabResult lab) => lab.CheckUpDate.HasValue
+        ? $"{lab.CheckUpDate.Value:MMM d, yyyy} - {lab.CheckUpComplaint}"
+        : "Not attached";
+}
+
+<section class="page-heading">
+    <div>
+        <h1>Reports</h1>
+    </div>
+</section>
+
+@if (!string.IsNullOrWhiteSpace(Model.DataNotice))
+{
+    <div class="system-alert">@Model.DataNotice</div>
+}
+
+<section class="reports-tabs" aria-label="Report categories">
+    <nav class="nav nav-tabs" id="reportsTabs" role="tablist">
+        <button class="nav-link active" id="patient-visits-tab" data-bs-toggle="tab" data-bs-target="#patient-visits-report" type="button" role="tab" aria-controls="patient-visits-report" aria-selected="true">
+            Patient Visits
+            <span>@Model.RecentRecords.Count</span>
+        </button>
+        <button class="nav-link" id="labs-tab" data-bs-toggle="tab" data-bs-target="#labs-report" type="button" role="tab" aria-controls="labs-report" aria-selected="false">
+            Labs
+            <span>@Model.LabResults.Count</span>
+        </button>
+        <button class="nav-link" id="prescriptions-tab" data-bs-toggle="tab" data-bs-target="#prescriptions-report" type="button" role="tab" aria-controls="prescriptions-report" aria-selected="false">
+            Prescriptions
+            <span>@Model.Prescriptions.Count</span>
+        </button>
+    </nav>
+</section>
+
+<section class="reports-grid tab-content" id="reportsTabContent">
+    <article class="panel tab-pane fade show active" id="patient-visits-report" role="tabpanel" aria-labelledby="patient-visits-tab" tabindex="0">
+        <div class="panel-header">
+            <h2>Patient Visits</h2>
+        </div>
+        <div class="table-responsive">
+            <table class="table app-table">
+                <thead>
+                <tr>
+                    <th>Patient</th>
+                    <th>Date</th>
+                    <th>Complaint</th>
+                    <th>Diagnosis</th>
+                    <th>Doctor</th>
+                    <th>Status</th>
+                </tr>
+                </thead>
+                <tbody>
+                @foreach (var record in Model.RecentRecords)
+                {
+                    <tr>
+                        <td>@record.PatientName</td>
+                        <td>@record.VisitDate.ToString("MMM d, yyyy h:mm tt")</td>
+                        <td>@record.ChiefComplaint</td>
+                        <td>@record.Diagnosis</td>
+                        <td>@record.DoctorName</td>
+                        <td><span class="status @record.SyncStatus.ToLowerInvariant()">@record.SyncStatus</span></td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    </article>
+
+    <article class="panel tab-pane fade" id="labs-report" role="tabpanel" aria-labelledby="labs-tab" tabindex="0">
+        <div class="panel-header">
+            <h2>Labs</h2>
+        </div>
+        <div class="table-responsive">
+            <table class="table app-table">
+                <thead>
+                <tr>
+                    <th>Patient</th>
+                    <th>Test</th>
+                    <th>Requested</th>
+                    <th>Result</th>
+                    <th>Check up</th>
+                    <th>Status</th>
+                </tr>
+                </thead>
+                <tbody>
+                @foreach (var lab in Model.LabResults)
+                {
+                    <tr>
+                        <td>@lab.PatientName</td>
+                        <td>@lab.TestName</td>
+                        <td>@lab.RequestedDate.ToString("MMM d, yyyy")</td>
+                        <td>@lab.ResultDate.ToString("MMM d, yyyy")</td>
+                        <td>@CheckUpLabel(lab)</td>
+                        <td>@lab.Status</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    </article>
+
+    <article class="panel tab-pane fade" id="prescriptions-report" role="tabpanel" aria-labelledby="prescriptions-tab" tabindex="0">
+        <div class="panel-header">
+            <h2>Prescriptions</h2>
+        </div>
+        <div class="table-responsive">
+            <table class="table app-table">
+                <thead>
+                <tr>
+                    <th>Patient</th>
+                    <th>Medication</th>
+                    <th>Dosage</th>
+                    <th>Frequency</th>
+                    <th>Duration</th>
+                </tr>
+                </thead>
+                <tbody>
+                @foreach (var prescription in Model.Prescriptions)
+                {
+                    IReadOnlyList<PrescriptionItem> prescriptionItems = prescription.Items.Count > 0
+                        ? prescription.Items
+                        : new[]
+                        {
+                            new PrescriptionItem
+                            {
+                                Medication = prescription.Medication,
+                                Dosage = prescription.Dosage,
+                                Frequency = prescription.Frequency,
+                                Duration = prescription.Duration
+                            }
+                        };
+
+                    foreach (var item in prescriptionItems)
+                    {
+                        <tr>
+                            <td>@prescription.PatientName</td>
+                            <td>@item.Medication</td>
+                            <td>@item.Dosage</td>
+                            <td>@item.Frequency</td>
+                            <td>@item.Duration</td>
+                        </tr>
+                    }
+                }
+                </tbody>
+            </table>
+        </div>
+    </article>
+</section>

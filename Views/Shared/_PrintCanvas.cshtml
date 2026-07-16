@@ -1,0 +1,171 @@
+@model medrec.ViewModels.PrintDocumentViewModel
+
+@{
+    var layout = Model.Layout;
+    var isDiagnosis = layout.DocumentType.Equals("Diagnosis", StringComparison.OrdinalIgnoreCase);
+    var documentDate = isDiagnosis
+        ? Model.Record?.VisitDate
+        : Model.Prescription?.IssuedAt;
+    var patientName = Model.Patient?.FullName ?? Model.Record?.PatientName ?? Model.Prescription?.PatientName ?? string.Empty;
+    var patientAddress = Model.Patient?.Address ?? Model.Record?.PatientAddress ?? Model.Prescription?.PatientAddress ?? string.Empty;
+    var patientAge = Model.Patient?.Age ?? Model.Record?.PatientAge ?? Model.Prescription?.PatientAge ?? 0;
+    var patientSex = Model.Patient?.Sex ?? Model.Record?.PatientSex ?? Model.Prescription?.PatientSex ?? string.Empty;
+    var profileName = Context.Session.GetString("UserName") ?? layout.DoctorName;
+    var doctorName = Model.Prescription?.Prescriber ?? Model.Record?.DoctorName ?? profileName;
+    var doctorSpecialty = Context.Session.GetString("UserSpecialty") ?? layout.SignatoryTitle;
+    var doctorLicense = Context.Session.GetString("UserLicenseNumber") ?? layout.LicenseNumber;
+    var doctorContact = Context.Session.GetString("UserContactNumber") ?? string.Empty;
+    var doctorSignatureUrl = Context.Session.GetString("UserSignatureUrl");
+}
+
+<section id="@Model.ElementId" class="print-document print-canvas @Model.CssClass">
+    @foreach (var block in layout.Blocks.Where(item => item.IsVisible))
+    {
+        <div class="print-block print-block-@block.Type.ToLowerInvariant() print-block-@block.Key" style="@block.Style">
+            @if (block.Type.Equals("Text", StringComparison.OrdinalIgnoreCase))
+            {
+                <span>@block.Text</span>
+            }
+            else if (block.Type.Equals("Line", StringComparison.OrdinalIgnoreCase))
+            {
+                <span class="print-line" style="border-top-width:@(block.LineWidth)px"></span>
+            }
+            else if (block.Type.Equals("Image", StringComparison.OrdinalIgnoreCase))
+            {
+                @if (!string.IsNullOrWhiteSpace(block.ImageUrl))
+                {
+                    <img src="@block.ImageUrl" alt="@block.Label">
+                }
+            }
+            else
+            {
+                @switch (block.Key)
+                {
+                    case "logo":
+                    if (!string.IsNullOrWhiteSpace(layout.LogoUrl))
+                    {
+                        <img src="@layout.LogoUrl" alt="Clinic logo">
+                    }
+                        break;
+                    case "clinic":
+                    <strong>@layout.ClinicName</strong>
+                    <span>@doctorName</span>
+                    @if (!string.IsNullOrWhiteSpace(doctorSpecialty))
+                    {
+                        <span>@doctorSpecialty</span>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(doctorLicense))
+                    {
+                        <span>License No. @doctorLicense</span>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(doctorContact))
+                    {
+                        <span>@doctorContact</span>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(layout.ClinicAddress))
+                    {
+                        <span>@layout.ClinicAddress</span>
+                    }
+                    @if (!string.IsNullOrWhiteSpace(layout.ClinicSchedule))
+                    {
+                        <span>@layout.ClinicSchedule</span>
+                    }
+                        break;
+                    case "title":
+                    <h2>@layout.DocumentTitle</h2>
+                    @if (documentDate.HasValue)
+                    {
+                        <span>@documentDate.Value.ToString("MMM d, yyyy")</span>
+                    }
+                        break;
+                    case "patient":
+                    @if (!string.IsNullOrWhiteSpace(patientName))
+                    {
+                        <div class="print-patient-details">
+                            <div class="print-patient-detail print-patient-name">
+                                <span>Patient:</span>
+                                <strong>@patientName</strong>
+                            </div>
+                            <div class="print-patient-detail print-patient-date">
+                                <span>Date:</span>
+                                <strong>@documentDate?.ToString("MMM d, yyyy")</strong>
+                            </div>
+                            <div class="print-patient-detail print-patient-address">
+                                <span>Address:</span>
+                                <strong>@patientAddress</strong>
+                            </div>
+                            <div class="print-patient-detail print-patient-age">
+                                <span>Age:</span>
+                                <strong>@(patientAge > 0 ? patientAge.ToString() : "-")</strong>
+                            </div>
+                            <div class="print-patient-detail print-patient-sex">
+                                <span>Sex:</span>
+                                <strong>@(string.IsNullOrWhiteSpace(patientSex) ? "-" : patientSex)</strong>
+                            </div>
+                        </div>
+                    }
+                        break;
+                case "body":
+                    if (isDiagnosis && Model.Record is not null)
+                    {
+                        <h3>Diagnosis</h3>
+                        <p data-certificate-diagnosis>@Model.Record.Diagnosis</p>
+                    }
+                    else if (Model.Prescription is not null)
+                    {
+                        IReadOnlyList<PrescriptionItem> prescriptionItems = Model.Prescription.Items.Count > 0
+                            ? Model.Prescription.Items
+                            : new[]
+                            {
+                                new PrescriptionItem
+                                {
+                                    Medication = Model.Prescription.Medication,
+                                    Dosage = Model.Prescription.Dosage,
+                                    Frequency = Model.Prescription.Frequency,
+                                    Duration = Model.Prescription.Duration
+                                }
+                            };
+                        <div class="prescription-print-items">
+                            @foreach (var item in prescriptionItems)
+                            {
+                                <div class="prescription-print-item">
+                                    <strong>@item.Medication</strong>
+                                    <span>@item.Dosage</span>
+                                    <span>@item.Frequency</span>
+                                    <span>@item.Duration</span>
+                                </div>
+                            }
+                        </div>
+                    }
+                    break;
+                    case "notes":
+                    if (isDiagnosis && Model.Record is not null)
+                    {
+                        <h3>Notes</h3>
+                        <p data-certificate-notes>@Model.Record.Notes</p>
+                    }
+                    else if (Model.Prescription is not null && !string.IsNullOrWhiteSpace(Model.Prescription.Instructions))
+                    {
+                        <h3>Instructions</h3>
+                        <p>@Model.Prescription.Instructions</p>
+                    }
+                        break;
+                    case "signatureImage":
+                    @if (!string.IsNullOrWhiteSpace(doctorSignatureUrl))
+                    {
+                        <img src="@doctorSignatureUrl" alt="@doctorName signature">
+                    }
+                        break;
+                    case "signature":
+                    <div class="signature-line"></div>
+                    <strong>@doctorName</strong>
+                    @if (!string.IsNullOrWhiteSpace(doctorLicense))
+                    {
+                        <span>License No. @doctorLicense</span>
+                    }
+                        break;
+                }
+            }
+        </div>
+    }
+</section>

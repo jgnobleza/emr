@@ -1,0 +1,272 @@
+@model medrec.ViewModels.PrescriptionsPageViewModel
+
+@{
+    ViewData["Title"] = "Prescriptions";
+    var layout = Model.PrescriptionLayout;
+    var selectedPatient = Model.Patients.FirstOrDefault(patient => patient.Id == Model.NewPrescription.PatientId);
+    string DrugInputId(int index, string field) => $"NewPrescription_Items_{index}__{field}";
+}
+
+<section class="page-heading print-hidden">
+    <div>
+        <h1>Prescriptions</h1>
+    </div>
+    <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#prescriptionModal">New prescription</button>
+</section>
+
+@if (!string.IsNullOrWhiteSpace(Model.DataNotice))
+{
+    <div class="system-alert print-hidden">@Model.DataNotice</div>
+}
+
+<section class="prescription-grid">
+    @foreach (var prescription in Model.Prescriptions)
+    {
+        var record = Model.Records.FirstOrDefault(r => r.Id == prescription.ClinicalRecordId);
+        var patient = Model.Patients.FirstOrDefault(item => item.Id == prescription.PatientId);
+        <article class="prescription-item-card" data-prescription-id="@prescription.Id">
+            <div class="prescription-item">
+                <div class="prescription-info">
+                    <div>
+                        <strong>@prescription.PatientName</strong>
+                        @if (record != null)
+                        {
+                            <span class="prescription-checkup">Check-up: @record.VisitDate.ToString("MMM d, yyyy")</span>
+                        }
+                    </div>
+                    <span class="prescription-date">@prescription.IssuedAt.ToString("MMM d, yyyy")</span>
+                </div>
+                <button class="btn btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#prescriptionPreviewModal" data-prescription-id="@prescription.Id">View</button>
+            </div>
+            <div class="prescription-preview-content d-none">
+                <partial name="_PrintCanvas" model="@(new medrec.ViewModels.PrintDocumentViewModel
+                {
+                    Layout = layout,
+                    Prescription = prescription,
+                    Patient = patient
+                })" />
+            </div>
+        </article>
+    }
+</section>
+
+<div class="modal fade" id="prescriptionModal" tabindex="-1" aria-labelledby="prescriptionModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title fs-5" id="prescriptionModalLabel">New prescription</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form asp-action="Create" method="post" data-offline-form>
+                <div class="modal-body">
+                    <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+                    <div class="form-grid">
+                        <div>
+                            <label asp-for="NewPrescription.PatientId" class="form-label">Patient</label>
+                            <input asp-for="NewPrescription.PatientId" type="hidden" data-prescription-patient-id>
+                            <div class="searchable-select" data-searchable-select>
+                                <input class="form-control"
+                                       value="@selectedPatient?.FullName"
+                                       autocomplete="off"
+                                       data-prescription-patient-search
+                                       placeholder="Type or choose patient name"
+                                       role="combobox"
+                                       aria-expanded="false"
+                                       aria-autocomplete="list">
+                                <div class="searchable-select-menu" data-searchable-select-menu>
+                                    @foreach (var patient in Model.Patients)
+                                    {
+                                        <button type="button"
+                                                class="searchable-select-option"
+                                                data-prescription-patient-option
+                                                data-patient-id="@patient.Id"
+                                                data-patient-name="@patient.FullName">
+                                            <span>@patient.FullName</span>
+                                            <small>@patient.PatientNumber</small>
+                                        </button>
+                                    }
+                                </div>
+                            </div>
+                            <span asp-validation-for="NewPrescription.PatientId" class="text-danger"></span>
+                        </div>
+                        <div>
+                            <label asp-for="NewPrescription.ClinicalRecordId" class="form-label">Check up</label>
+                            <select asp-for="NewPrescription.ClinicalRecordId" class="form-select" data-prescription-checkup-select>
+                                <option value="">None</option>
+                                @foreach (var record in Model.Records)
+                                {
+                                    <option value="@record.Id" data-patient-id="@record.PatientId">@record.VisitDate.ToString("MMM d, yyyy")</option>
+                                }
+                            </select>
+                            <span asp-validation-for="NewPrescription.ClinicalRecordId" class="text-danger"></span>
+                        </div>
+                        <div class="span-2 prescription-drug-section" data-prescription-drugs>
+                            <div class="prescription-drug-heading">
+                                <label class="form-label">Drugs</label>
+                                <button class="btn btn-outline-primary" type="button" data-add-prescription-drug>Add drug</button>
+                            </div>
+                            @Html.ValidationMessage("NewPrescription.Items", null, new { @class = "text-danger d-block" })
+                            <div class="prescription-drug-list" data-prescription-drug-list>
+                                @for (var i = 0; i < Model.NewPrescription.Items.Count; i++)
+                                {
+                                    var item = Model.NewPrescription.Items[i];
+                                    var medicationId = DrugInputId(i, "Medication");
+                                    var dosageId = DrugInputId(i, "Dosage");
+                                    var frequencyId = DrugInputId(i, "Frequency");
+                                    var durationId = DrugInputId(i, "Duration");
+                                    <div class="prescription-drug-row" data-prescription-drug-row>
+                                        <div class="prescription-drug-title" data-drug-row-title>Drug @(i + 1)</div>
+                                        <div>
+                                            <label class="form-label" for="@medicationId" data-drug-label data-drug-label-field="Medication">Medication</label>
+                                            <input class="form-control" id="@medicationId" name="NewPrescription.Items[@i].Medication" value="@item.Medication" list="medicationSuggestions" data-drug-field="Medication">
+                                            @Html.ValidationMessage($"NewPrescription.Items[{i}].Medication", null, new { @class = "text-danger", data_drug_validation_field = "Medication" })
+                                        </div>
+                                        <div>
+                                            <label class="form-label" for="@dosageId" data-drug-label data-drug-label-field="Dosage">Dosage</label>
+                                            <input class="form-control" id="@dosageId" name="NewPrescription.Items[@i].Dosage" value="@item.Dosage" data-drug-field="Dosage">
+                                            @Html.ValidationMessage($"NewPrescription.Items[{i}].Dosage", null, new { @class = "text-danger", data_drug_validation_field = "Dosage" })
+                                        </div>
+                                        <div>
+                                            <label class="form-label" for="@frequencyId" data-drug-label data-drug-label-field="Frequency">Frequency</label>
+                                            <input class="form-control" id="@frequencyId" name="NewPrescription.Items[@i].Frequency" value="@item.Frequency" data-drug-field="Frequency">
+                                            @Html.ValidationMessage($"NewPrescription.Items[{i}].Frequency", null, new { @class = "text-danger", data_drug_validation_field = "Frequency" })
+                                        </div>
+                                        <div>
+                                            <label class="form-label" for="@durationId" data-drug-label data-drug-label-field="Duration">Duration</label>
+                                            <input class="form-control" id="@durationId" name="NewPrescription.Items[@i].Duration" value="@item.Duration" data-drug-field="Duration">
+                                            @Html.ValidationMessage($"NewPrescription.Items[{i}].Duration", null, new { @class = "text-danger", data_drug_validation_field = "Duration" })
+                                        </div>
+                                        <button class="btn btn-outline-secondary" type="button" data-remove-prescription-drug>Remove</button>
+                                    </div>
+                                }
+                            </div>
+                            <template data-prescription-drug-template>
+                                <div class="prescription-drug-row" data-prescription-drug-row>
+                                    <div class="prescription-drug-title" data-drug-row-title>Drug</div>
+                                    <div>
+                                        <label class="form-label" data-drug-label data-drug-label-field="Medication">Medication</label>
+                                        <input class="form-control" list="medicationSuggestions" data-drug-field="Medication">
+                                        <span class="text-danger" data-drug-validation-field="Medication"></span>
+                                    </div>
+                                    <div>
+                                        <label class="form-label" data-drug-label data-drug-label-field="Dosage">Dosage</label>
+                                        <input class="form-control" data-drug-field="Dosage">
+                                        <span class="text-danger" data-drug-validation-field="Dosage"></span>
+                                    </div>
+                                    <div>
+                                        <label class="form-label" data-drug-label data-drug-label-field="Frequency">Frequency</label>
+                                        <input class="form-control" data-drug-field="Frequency">
+                                        <span class="text-danger" data-drug-validation-field="Frequency"></span>
+                                    </div>
+                                    <div>
+                                        <label class="form-label" data-drug-label data-drug-label-field="Duration">Duration</label>
+                                        <input class="form-control" data-drug-field="Duration">
+                                        <span class="text-danger" data-drug-validation-field="Duration"></span>
+                                    </div>
+                                    <button class="btn btn-outline-secondary" type="button" data-remove-prescription-drug>Remove</button>
+                                </div>
+                            </template>
+                            <datalist id="medicationSuggestions">
+                                @foreach (var medication in Model.MedicationSuggestions)
+                                {
+                                    <option value="@medication"></option>
+                                }
+                            </datalist>
+                        </div>
+                        <div class="span-2">
+                            <label asp-for="NewPrescription.Instructions" class="form-label"></label>
+                            <textarea asp-for="NewPrescription.Instructions" class="form-control" rows="2"></textarea>
+                        </div>
+                        <div>
+                            <label class="form-label">Prescriber</label>
+                            <input value="@Model.NewPrescription.Prescriber" class="form-control" disabled aria-describedby="prescriberHelp">
+                            <small id="prescriberHelp" class="form-text text-muted">Automatically assigned from the logged-in account.</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancel</button>
+                    <button class="btn btn-primary" type="submit">Save prescription</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="prescriptionPreviewModal" tabindex="-1" aria-labelledby="prescriptionPreviewModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title fs-5" id="prescriptionPreviewModalLabel">Prescription Preview</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="prescriptionPreviewContent" style="display: flex; justify-content: center; align-items: flex-start; padding: 1rem;">
+                <!-- Prescription preview will be inserted here -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+                <form id="printForm" asp-action="Print" method="post" style="display: inline;">
+                    @Html.AntiForgeryToken()
+                    <input type="hidden" id="prescriptionIdInput" name="id" />
+                    <button type="submit" class="btn btn-primary">Print</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Handle View button clicks
+            const viewButtons = document.querySelectorAll('[data-bs-target="#prescriptionPreviewModal"]');
+            viewButtons.forEach(button => {
+                button.addEventListener('click', function() {
+                    const prescriptionId = this.getAttribute('data-prescription-id');
+                    const prescriptionCard = document.querySelector(`[data-prescription-id="${prescriptionId}"]`);
+                    const previewContent = prescriptionCard.querySelector('.prescription-preview-content');
+                    const modalBody = document.getElementById('prescriptionPreviewContent');
+                    
+                    // Clone the preview content and show it in modal
+                    const clonedContent = previewContent.cloneNode(true);
+                    clonedContent.classList.remove('d-none');
+                    modalBody.innerHTML = '';
+                    modalBody.appendChild(clonedContent);
+                    requestAnimationFrame(() => window.fitPrintPreview(modalBody));
+                    
+                    // Store current prescription ID for printing
+                    document.getElementById('prescriptionIdInput').value = prescriptionId;
+                });
+            });
+            
+            // Handle print form submission
+            const printForm = document.getElementById('printForm');
+            if (printForm) {
+                printForm.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    
+                    // Submit the form to register the print action
+                    fetch(this.action, {
+                        method: 'POST',
+                        body: new FormData(this),
+                        headers: {
+                            'X-Requested-With': 'XMLHttpRequest'
+                        }
+                    })
+                    .then(response => {
+                        if (response.ok || response.status === 204) {
+                            const canvas = document.querySelector('#prescriptionPreviewContent .print-canvas');
+                            setTimeout(() => window.printDocumentCanvas(canvas), 100);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Print registration failed:', error);
+                        const canvas = document.querySelector('#prescriptionPreviewContent .print-canvas');
+                        window.printDocumentCanvas(canvas);
+                    });
+                });
+            }
+        });
+    </script>
+}

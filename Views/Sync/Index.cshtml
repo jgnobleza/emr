@@ -1,0 +1,53 @@
+@model medrec.ViewModels.DashboardViewModel
+
+@{
+    ViewData["Title"] = "Sync";
+}
+
+<section class="page-heading">
+    <div>
+        <h1>Sync</h1>
+    </div>
+    <div class="page-actions">
+        <form asp-action="Manual" method="post">
+            <button class="btn btn-primary" type="submit" data-manual-sync>Manual Sync</button>
+        </form>
+        <form asp-action="CleanupRecords" method="post" data-confirm="Run cleanup for record data inconsistencies?">
+            <button class="btn btn-outline-secondary" type="submit">Cleanup Records</button>
+        </form>
+    </div>
+</section>
+
+<div class="system-alert">The app now uses the normal online pages only. If MySQL is temporarily unavailable, the app keeps the page usable with fallback data until the connection is restored.</div>
+
+<section class="panel">
+    <div class="panel-header">
+        <h2>Queue</h2>
+        <span class="status pending">@Model.PendingSyncCount pending</span>
+    </div>
+    <div class="table-responsive">
+        <table class="table app-table">
+            <thead>
+            <tr>
+                <th>Entity</th>
+                <th>Operation</th>
+                <th>Updated</th>
+                <th>Synced</th>
+                <th>Status</th>
+            </tr>
+            </thead>
+            <tbody>
+            @foreach (var item in Model.SyncQueue)
+            {
+                <tr>
+                    <td>@item.EntityType #@item.EntityId</td>
+                    <td>@item.Operation</td>
+                    <td>@item.UpdatedAt.ToString("MMM d, h:mm tt")</td>
+                    <td>@(item.SyncedAt?.ToString("MMM d, h:mm tt") ?? "Not yet")</td>
+                    <td><span class="status @item.Status.ToLowerInvariant()">@item.Status</span></td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+</section>

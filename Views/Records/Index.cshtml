@@ -1,0 +1,507 @@
+@model medrec.ViewModels.RecordsPageViewModel
+
+@{
+    ViewData["Title"] = "Check Ups";
+    var selectedRecord = Model.SelectedRecord;
+    var layout = Model.DiagnosisLayout;
+    var latestLab = Model.PatientLabs.FirstOrDefault();
+    var attachmentLab = Model.PatientLabs.FirstOrDefault(lab => lab.Id == Model.LabAttachment.LabId);
+    var latestLabUrl = !string.IsNullOrWhiteSpace(latestLab?.FileUrl) && latestLab.FileUrl != "#" ? latestLab.FileUrl : null;
+    string PdfViewerUrl(string url) => $"{url}#toolbar=0&navpanes=0&scrollbar=1&view=FitH";
+    bool IsImageUrl(string? url) => !string.IsNullOrWhiteSpace(url)
+        && new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp" }.Contains(System.IO.Path.GetExtension(url).ToLowerInvariant());
+    string InputDate(DateTime date) => date.ToString("yyyy-MM-ddTHH:mm");
+    string DecimalLabel(decimal? value, string unit) => value.HasValue ? $"{value.Value:0.##} {unit}" : "-";
+    string TextLabel(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+    string CheckUpLabel(medrec.Models.LabResult lab) => lab.CheckUpDate.HasValue
+        ? $"{lab.CheckUpDate.Value:MMM d, yyyy} - {lab.CheckUpComplaint}"
+        : "Not attached";
+}
+
+<section class="page-heading">
+    <div>
+        <p class="eyebrow">Check Ups</p>
+        <h1 class="checkup-patient-title">
+            @if (!string.IsNullOrWhiteSpace(Model.SelectedPatient?.PhotoUrl))
+            {
+                <img class="avatar avatar-img checkup-patient-avatar" src="@Model.SelectedPatient.PhotoUrl" alt="@(Model.SelectedPatient?.FullName ?? "Selected patient")">
+            }
+            else if (Model.SelectedPatient is not null)
+            {
+                <div class="avatar checkup-patient-avatar">@Model.SelectedPatient.FullName[..1]</div>
+            }
+            <span>@(Model.SelectedPatient?.FullName ?? "Select patient")</span>
+        </h1>
+    </div>
+    <div class="page-actions">
+        <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#recordModal">New Checkup</button>
+        <button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#labModal">Upload lab</button>
+    </div>
+</section>
+
+@if (!string.IsNullOrWhiteSpace(Model.DataNotice))
+{
+    <div class="system-alert">@Model.DataNotice</div>
+}
+
+<section class="checkup-toolbar">
+    <div class="checkup-tabs">
+        @foreach (var record in Model.PatientRecords)
+        {
+            <a class="checkup-tab @(record.Id == selectedRecord?.Id ? "active" : "")"
+               asp-action="Index"
+               asp-route-patientId="@record.PatientId"
+               asp-route-recordId="@record.Id">
+                <strong>@record.VisitDate.ToString("MMM d, yyyy")</strong>
+                <span>@record.ChiefComplaint</span>
+            </a>
+        }
+    </div>
+</section>
+
+<section class="viewer-page">
+    <div class="viewer-grid">
+        <article class="viewer-pane">
+            <div class="viewer-pane-header">
+                <div>
+                    <span class="section-label">Complaint</span>
+                    <h2>@(selectedRecord?.ChiefComplaint ?? "No check up")</h2>
+                </div>
+                @if (selectedRecord is not null)
+                {
+                    <span class="status @selectedRecord.SyncStatus.ToLowerInvariant()">@selectedRecord.SyncStatus</span>
+                }
+            </div>
+
+            @if (selectedRecord is null)
+            {
+                <div class="pdf-empty">Create a check up first.</div>
+            }
+            else
+            {
+                <dl class="clinical-summary">
+                    <div><dt>Height</dt><dd>@DecimalLabel(selectedRecord.HeightCm, "cm")</dd></div>
+                    <div><dt>Weight</dt><dd>@DecimalLabel(selectedRecord.WeightKg, "kg")</dd></div>
+                    <div><dt>BP</dt><dd>@TextLabel(selectedRecord.BloodPressure)</dd></div>
+                    <div><dt>Fetal heart rate</dt><dd>@TextLabel(selectedRecord.FetalHeartRate)</dd></div>
+                    <div><dt>Age of Gestation</dt><dd>@(Model.SelectedPatient?.AgeOfGestationLabel ?? "-")</dd></div>
+                    <div><dt>Estimated Due Date</dt><dd>@(Model.SelectedPatient?.EstimatedDueDateLabel ?? "-")</dd></div>
+                    <div><dt>Temperature</dt><dd>@DecimalLabel(selectedRecord.TemperatureC, "C")</dd></div>
+                </dl>
+
+                <form asp-action="UpdateDiagnosis" method="post" class="diagnosis-form" data-offline-form>
+                    <input name="RecordId" type="hidden" value="@Model.Diagnosis.RecordId">
+                    <div>
+                        <label for="Diagnosis" class="form-label">Diagnosis</label>
+                        <textarea id="Diagnosis" name="Diagnosis" class="form-control diagnosis-textarea" rows="5">@Model.Diagnosis.Diagnosis</textarea>
+                    </div>
+                    <div>
+                        <label for="Notes" class="form-label">Notes</label>
+                        <textarea id="Notes" name="Notes" class="form-control diagnosis-textarea" rows="5">@Model.Diagnosis.Notes</textarea>
+                    </div>
+                    <div class="form-actions">
+                        <button class="btn btn-outline-primary btn-compact" type="button" data-bs-toggle="modal" data-bs-target="#checkupEditModal">Edit checkup</button>
+                        <button class="btn btn-outline-secondary btn-compact" type="button" data-bs-toggle="modal" data-bs-target="#diagnosisPreviewModal">View diagnosis</button>
+                        <button class="btn btn-primary btn-compact" type="submit">Save diagnosis</button>
+                    </div>
+                </form>
+            }
+        </article>
+
+        <article class="viewer-pane pdf-viewer-pane">
+            <div class="viewer-pane-header">
+                <div>
+                    <span class="section-label">Labs</span>
+                    <h2 id="pdfTitle">@(latestLab?.TestName ?? "No laboratories yet on this checkup")</h2>
+                    <small id="pdfPatient">@(latestLab?.PatientName ?? "-")</small>
+                </div>
+            </div>
+
+            <div class="lab-picker">
+                @foreach (var lab in Model.PatientLabs)
+                {
+                    var labUrl = !string.IsNullOrWhiteSpace(lab.FileUrl) && lab.FileUrl != "#" ? lab.FileUrl : "";
+                    var labKind = IsImageUrl(labUrl) ? "image" : "pdf";
+                    <div class="lab-picker-card">
+                        <button class="lab-picker-item @(lab.Id == latestLab?.Id ? "active" : "")" type="button" data-lab-url="@labUrl" data-lab-kind="@labKind" data-lab-title="@lab.TestName" data-lab-patient="@($"{lab.PatientName} - Requested {lab.RequestedDate:MMM d, yyyy}")">
+                            <strong>@lab.TestName</strong>
+                            <span>Requested @lab.RequestedDate.ToString("MMM d, yyyy")</span>
+                            <small>@CheckUpLabel(lab)</small>
+                        </button>
+                        @if (!lab.ClinicalRecordId.HasValue && Model.PatientRecords.Any())
+                        {
+                            <button class="btn btn-sm btn-outline-primary attach-lab-button"
+                                    type="button"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#attachLabModal"
+                                    data-lab-id="@lab.Id"
+                                    data-patient-id="@lab.PatientId"
+                                    data-lab-title="@lab.TestName">
+                                Attach
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+
+            @if (latestLabUrl is not null && IsImageUrl(latestLabUrl))
+            {
+                <img id="labImageFrame" class="lab-image-preview" src="@latestLabUrl" alt="Lab result image">
+                <iframe id="labPdfFrame" class="pdf-frame d-none" src="about:blank" title="Lab result PDF"></iframe>
+            }
+            else if (latestLabUrl is not null)
+            {
+                <img id="labImageFrame" class="lab-image-preview d-none" alt="Lab result image">
+                <iframe id="labPdfFrame" class="pdf-frame" src="@PdfViewerUrl(latestLabUrl)" title="Lab result PDF"></iframe>
+            }
+            else
+            {
+                <div id="labPdfEmpty" class="pdf-empty">No laboratories yet on this checkup</div>
+                <img id="labImageFrame" class="lab-image-preview d-none" alt="Lab result image">
+                <iframe id="labPdfFrame" class="pdf-frame d-none" src="about:blank" title="Lab result PDF"></iframe>
+            }
+        </article>
+    </div>
+</section>
+
+@if (selectedRecord is not null && Model.SelectedPatient is not null)
+{
+    <div data-diagnosis-preview-content class="d-none">
+        <partial name="_PrintCanvas" model="@(new medrec.ViewModels.PrintDocumentViewModel
+        {
+            ElementId = "medicalCertificatePrint",
+            CssClass = "medical-certificate",
+            Layout = layout,
+            Record = selectedRecord,
+            Patient = Model.SelectedPatient
+        })" />
+    </div>
+}
+
+@if (selectedRecord is not null)
+{
+    <div class="modal fade" id="checkupEditModal" tabindex="-1" aria-labelledby="checkupEditModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 class="modal-title fs-5" id="checkupEditModalLabel">Edit Checkup</h2>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <form asp-action="UpdateCheckup" method="post" data-offline-form>
+                    <div class="modal-body">
+                        <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+                        <input asp-for="CheckupEdit.RecordId" type="hidden">
+                        <div class="form-grid">
+                            <div class="span-2">
+                                <label asp-for="CheckupEdit.ChiefComplaint" class="form-label">Complaint</label>
+                                <input asp-for="CheckupEdit.ChiefComplaint" class="form-control">
+                                <span asp-validation-for="CheckupEdit.ChiefComplaint" class="text-danger"></span>
+                            </div>
+                            <div>
+                                <label asp-for="CheckupEdit.HeightCm" class="form-label">Height (cm)</label>
+                                <input asp-for="CheckupEdit.HeightCm" type="number" step="0.01" class="form-control">
+                                <span asp-validation-for="CheckupEdit.HeightCm" class="text-danger"></span>
+                            </div>
+                            <div>
+                                <label asp-for="CheckupEdit.WeightKg" class="form-label">Weight (kg)</label>
+                                <input asp-for="CheckupEdit.WeightKg" type="number" step="0.01" class="form-control">
+                                <span asp-validation-for="CheckupEdit.WeightKg" class="text-danger"></span>
+                            </div>
+                            <div>
+                                <label asp-for="CheckupEdit.BloodPressure" class="form-label">BP</label>
+                                <input asp-for="CheckupEdit.BloodPressure" class="form-control" placeholder="120/80">
+                                <span asp-validation-for="CheckupEdit.BloodPressure" class="text-danger"></span>
+                            </div>
+                            <div>
+                                <label asp-for="CheckupEdit.FetalHeartRate" class="form-label">Fetal heart rate</label>
+                                <input asp-for="CheckupEdit.FetalHeartRate" class="form-control" placeholder="140 bpm">
+                                <span asp-validation-for="CheckupEdit.FetalHeartRate" class="text-danger"></span>
+                            </div>
+                            <div>
+                                <label asp-for="CheckupEdit.TemperatureC" class="form-label">Temperature (C)</label>
+                                <input asp-for="CheckupEdit.TemperatureC" type="number" step="0.01" class="form-control">
+                                <span asp-validation-for="CheckupEdit.TemperatureC" class="text-danger"></span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-outline-secondary btn-compact" data-bs-dismiss="modal">Cancel</button>
+                        <button type="submit" class="btn btn-primary btn-compact">Save checkup</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+}
+
+<div class="modal fade" id="diagnosisPreviewModal" tabindex="-1" aria-labelledby="diagnosisPreviewModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title fs-5" id="diagnosisPreviewModalLabel">Diagnosis Preview</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body" id="diagnosisPreviewContent" style="display: flex; justify-content: center; align-items: flex-start; padding: 1rem;">
+                <!-- Diagnosis preview will be inserted here -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="diagnosisPrintButton">Print</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="recordModal" tabindex="-1" aria-labelledby="recordModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title fs-5" id="recordModalLabel">New Checkup</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form asp-action="Create" method="post" data-offline-form>
+                <div class="modal-body">
+                    <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+                    <div class="form-grid">
+                        <div>
+                            <label asp-for="NewRecord.PatientId" class="form-label">Patient</label>
+                            <select asp-for="NewRecord.PatientId" class="form-select" asp-items="@(new SelectList(Model.Patients, "Id", "FullName"))"></select>
+                            <span asp-validation-for="NewRecord.PatientId" class="text-danger"></span>
+                        </div>
+                        <div>
+                            <label asp-for="NewRecord.VisitDate" class="form-label">Visit Date</label>
+                            <input asp-for="NewRecord.VisitDate" type="datetime-local" class="form-control">
+                            <span asp-validation-for="NewRecord.VisitDate" class="text-danger"></span>
+                        </div>
+                        <div>
+                            <label asp-for="NewRecord.ChiefComplaint" class="form-label">Complaint</label>
+                            <input asp-for="NewRecord.ChiefComplaint" class="form-control" list="complaintSuggestions">
+                            <datalist id="complaintSuggestions">
+                                @foreach (var complaint in Model.ComplaintSuggestions)
+                                {
+                                    <option value="@complaint"></option>
+                                }
+                            </datalist>
+                            <span asp-validation-for="NewRecord.ChiefComplaint" class="text-danger"></span>
+                        </div>
+                        <div>
+                            <label asp-for="NewRecord.HeightCm" class="form-label">Height (cm)</label>
+                            <input asp-for="NewRecord.HeightCm" type="number" step="0.01" class="form-control">
+                            <span asp-validation-for="NewRecord.HeightCm" class="text-danger"></span>
+                        </div>
+                        <div>
+                            <label asp-for="NewRecord.WeightKg" class="form-label">Weight (kg)</label>
+                            <input asp-for="NewRecord.WeightKg" type="number" step="0.01" class="form-control">
+                            <span asp-validation-for="NewRecord.WeightKg" class="text-danger"></span>
+                        </div>
+                        <div>
+                            <label asp-for="NewRecord.BloodPressure" class="form-label">BP</label>
+                            <input asp-for="NewRecord.BloodPressure" class="form-control" placeholder="120/80">
+                            <span asp-validation-for="NewRecord.BloodPressure" class="text-danger"></span>
+                        </div>
+                        <div>
+                            <label asp-for="NewRecord.FetalHeartRate" class="form-label">Fetal heart rate</label>
+                            <input asp-for="NewRecord.FetalHeartRate" class="form-control" placeholder="140 bpm">
+                            <span asp-validation-for="NewRecord.FetalHeartRate" class="text-danger"></span>
+                        </div>
+                        <div>
+                            <label asp-for="NewRecord.TemperatureC" class="form-label">Temperature (C)</label>
+                            <input asp-for="NewRecord.TemperatureC" type="number" step="0.01" class="form-control">
+                            <span asp-validation-for="NewRecord.TemperatureC" class="text-danger"></span>
+                        </div>
+                        <div>
+                            <label class="form-label">Doctor</label>
+                            <input value="@Model.NewRecord.DoctorName" class="form-control" disabled aria-describedby="checkupDoctorHelp">
+                            <small id="checkupDoctorHelp" class="form-text text-muted">Automatically assigned from the logged-in account.</small>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancel</button>
+                    <button class="btn btn-primary" type="submit">Create check up</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="labModal" tabindex="-1" aria-labelledby="labModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title fs-5" id="labModalLabel">Upload lab</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form asp-action="UploadLab" method="post" enctype="multipart/form-data" data-offline-form>
+                <div class="modal-body">
+                    <div class="form-grid">
+                        <div>
+                            <label class="form-label">Patient</label>
+                            <input asp-for="NewLab.PatientId" type="hidden">
+                            <input class="form-control" value="@(Model.SelectedPatient?.FullName ?? string.Empty)" disabled>
+                        </div>
+                        <div>
+                            <label asp-for="NewLab.ClinicalRecordId" class="form-label">Requested check up</label>
+                            <select asp-for="NewLab.ClinicalRecordId" class="form-select">
+                                <option value="">Select check up</option>
+                                @foreach (var record in Model.PatientRecords)
+                                {
+                                    <option value="@record.Id">@record.VisitDate.ToString("MMM d") - @record.ChiefComplaint</option>
+                                }
+                            </select>
+                            <span asp-validation-for="NewLab.ClinicalRecordId" class="text-danger"></span>
+                        </div>
+                        <div>
+                            <label asp-for="NewLab.TestName" class="form-label"></label>
+                            <input asp-for="NewLab.TestName" class="form-control">
+                            <span asp-validation-for="NewLab.TestName" class="text-danger"></span>
+                        </div>
+                        <div>
+                            <label asp-for="NewLab.RequestedDate" class="form-label">Requested date</label>
+                            <input asp-for="NewLab.RequestedDate" type="datetime-local" class="form-control">
+                            <span asp-validation-for="NewLab.RequestedDate" class="text-danger"></span>
+                        </div>
+                        <div>
+                            <label asp-for="NewLab.ResultDate" class="form-label">Result date</label>
+                            <input asp-for="NewLab.ResultDate" type="datetime-local" class="form-control">
+                            <span asp-validation-for="NewLab.ResultDate" class="text-danger"></span>
+                        </div>
+                        <div>
+                            <label asp-for="NewLab.File" class="form-label">Lab file</label>
+                            <div class="upload-actions">
+                                <button class="btn btn-outline-primary" type="button" data-file-picker-button>Choose file</button>
+                                <button class="btn btn-outline-primary" type="button" data-camera-button>Open camera</button>
+                            </div>
+                            <input asp-for="NewLab.File" type="file" accept="application/pdf,image/*" class="form-control upload-input-hidden" data-camera-capable>
+                            <small class="form-text text-muted" data-upload-file-name></small>
+                            <span asp-validation-for="NewLab.File" class="text-danger"></span>
+                        </div>
+                        <div>
+                            <label asp-for="NewLab.FileUrl" class="form-label">File URL</label>
+                            <input asp-for="NewLab.FileUrl" class="form-control">
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancel</button>
+                    <button class="btn btn-primary" type="submit">Save lab</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="attachLabModal" tabindex="-1" aria-labelledby="attachLabModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title fs-5" id="attachLabModalLabel">Attach lab</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form asp-action="AttachLab" method="post" data-offline-form>
+                <div class="modal-body">
+                    <div class="form-grid">
+                        <div>
+                            <label class="form-label">Lab</label>
+                            <input asp-for="LabAttachment.LabId" type="hidden">
+                            <input asp-for="LabAttachment.PatientId" type="hidden">
+                            <input class="form-control" value="@(attachmentLab?.TestName ?? string.Empty)" data-attach-lab-title disabled>
+                            <span asp-validation-for="LabAttachment.LabId" class="text-danger"></span>
+                        </div>
+                        <div>
+                            <label asp-for="LabAttachment.ClinicalRecordId" class="form-label">Check up</label>
+                            <select asp-for="LabAttachment.ClinicalRecordId" class="form-select" data-checkup-date-select>
+                                <option value="">Select check up</option>
+                                @foreach (var record in Model.PatientRecords)
+                                {
+                                    <option value="@record.Id" data-visit-date="@InputDate(record.VisitDate)">@record.VisitDate.ToString("MMM d") - @record.ChiefComplaint</option>
+                                }
+                            </select>
+                            <span asp-validation-for="LabAttachment.ClinicalRecordId" class="text-danger"></span>
+                        </div>
+                        <div>
+                            <label asp-for="LabAttachment.RequestedDate" class="form-label">Requested date</label>
+                            <input asp-for="LabAttachment.RequestedDate" type="datetime-local" class="form-control" data-requested-date-input>
+                            <span asp-validation-for="LabAttachment.RequestedDate" class="text-danger"></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancel</button>
+                    <button class="btn btn-primary" type="submit">Attach lab</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // Handle diagnosis preview modal
+            const diagnosisModal = document.getElementById('diagnosisPreviewModal');
+            if (diagnosisModal) {
+                diagnosisModal.addEventListener('show.bs.modal', function() {
+                    const previewContent = document.querySelector('[data-diagnosis-preview-content]');
+                    const modalBody = document.getElementById('diagnosisPreviewContent');
+                    
+                    if (previewContent) {
+                        // Sync diagnosis and notes before showing
+                        syncCertificatePrint();
+                        
+                        // Clone the preview content and show it in modal
+                        const clonedContent = previewContent.cloneNode(true);
+                        clonedContent.classList.remove('d-none');
+                        modalBody.innerHTML = '';
+                        modalBody.appendChild(clonedContent);
+                        requestAnimationFrame(() => window.fitPrintPreview(modalBody));
+                    }
+                });
+            }
+            
+            // Handle diagnosis print button
+            const diagnosisPrintButton = document.getElementById('diagnosisPrintButton');
+            if (diagnosisPrintButton) {
+                diagnosisPrintButton.addEventListener('click', function() {
+                    const target = document.getElementById('medicalCertificatePrint');
+                    if (target) {
+                        beginPrintMode('printing-target', target);
+                        window.print();
+                    }
+                });
+            }
+            
+            function syncCertificatePrint() {
+                const diagnosis = document.getElementById('Diagnosis');
+                const notes = document.getElementById('Notes');
+                const diagnosisTarget = document.querySelector('[data-certificate-diagnosis]');
+                const notesTarget = document.querySelector('[data-certificate-notes]');
+
+                if (diagnosis && diagnosisTarget) {
+                    diagnosisTarget.textContent = diagnosis.value;
+                }
+
+                if (notes && notesTarget) {
+                    notesTarget.textContent = notes.value;
+                }
+            }
+            
+            function beginPrintMode(mode, target) {
+                cleanupPrintMode();
+
+                if (target) {
+                    target.classList.add('is-printing');
+                }
+
+                document.body.classList.add(mode);
+                window.addEventListener('afterprint', cleanupPrintMode, { once: true });
+            }
+
+            function cleanupPrintMode() {
+                document.body.classList.remove('printing-target');
+                document.querySelectorAll('.is-printing').forEach((item) => item.classList.remove('is-printing'));
+            }
+        });
+    </script>
+}

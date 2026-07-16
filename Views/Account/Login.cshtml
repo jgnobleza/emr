@@ -1,0 +1,50 @@
+@model medrec.ViewModels.LoginViewModel
+
+@{
+    Layout = null;
+    ViewData["Title"] = "Doctor Login";
+}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Doctor Login - MedRec</title>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+</head>
+<body class="login-page">
+    <main class="login-shell">
+        <section class="login-panel">
+            <div class="login-brand">
+                <span class="brand-mark">M</span>
+                <div>
+                    <p class="eyebrow">OB-Gyne EMR</p>
+                    <h1>Doctor Login</h1>
+                </div>
+            </div>
+
+            <form asp-action="Login" method="post" class="login-form">
+                <input asp-for="ReturnUrl" type="hidden" />
+                <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+                <div>
+                    <label asp-for="Username" class="form-label"></label>
+                    <input asp-for="Username" class="form-control" autocomplete="username" autofocus />
+                    <span asp-validation-for="Username" class="text-danger"></span>
+                </div>
+                <div>
+                    <label asp-for="Password" class="form-label"></label>
+                    <input asp-for="Password" class="form-control" autocomplete="current-password" />
+                    <span asp-validation-for="Password" class="text-danger"></span>
+                </div>
+                <button class="btn btn-primary" type="submit">Login</button>
+            </form>
+        </section>
+    </main>
+
+    <script src="~/lib/jquery/dist/jquery.min.js"></script>
+    <partial name="_ValidationScriptsPartial" />
+    <script src="~/js/pwa-install.js" asp-append-version="true"></script>
+</body>
+</html>

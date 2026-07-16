@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>@ViewData["Title"] - MedRec</title>
+    <script type="importmap"></script>
+    <link rel="stylesheet" href="~/lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="~/css/site.css" asp-append-version="true" />
+    <link rel="stylesheet" href="~/medrec.styles.css" asp-append-version="true" />
+</head>
+<body data-open-modal="@ViewData["OpenModal"]">
+    <header class="app-header">
+        <nav class="navbar navbar-expand-lg navbar-light">
+            <div class="container-fluid">
+                <a class="navbar-brand app-brand" asp-area="" asp-controller="Home" asp-action="Index">
+                    <span class="brand-mark">M</span>
+                    <span>MedRec</span>
+                </a>
+                <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target=".navbar-collapse" aria-controls="navbarSupportedContent"
+                        aria-expanded="false" aria-label="Toggle navigation">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+                <div class="navbar-collapse collapse justify-content-between">
+                    <ul class="navbar-nav app-nav">
+                        <li class="nav-item"><a class="nav-link" asp-area="" asp-controller="Home" asp-action="Index">Dashboard</a></li>
+                        <li class="nav-item"><a class="nav-link" asp-area="" asp-controller="Patients" asp-action="Index">Patients</a></li>
+                        <li class="nav-item"><a class="nav-link" asp-area="" asp-controller="Records" asp-action="Index">Check Ups</a></li>
+                        <li class="nav-item"><a class="nav-link" asp-area="" asp-controller="Prescriptions" asp-action="Index">Prescriptions</a></li>
+                        <li class="nav-item"><a class="nav-link" asp-area="" asp-controller="Reports" asp-action="Index">Reports</a></li>
+                        <li class="nav-item"><a class="nav-link" asp-area="" asp-controller="Sync" asp-action="Index">Sync</a></li>
+                        <li class="nav-item"><a class="nav-link" asp-area="" asp-controller="Settings" asp-action="Index">My Settings</a></li>
+                        @if (string.Equals(Context.Session.GetString("UserRole"), "Admin", StringComparison.OrdinalIgnoreCase))
+                        {
+                            <li class="nav-item"><a class="nav-link" asp-area="" asp-controller="Admin" asp-action="Index">Administration</a></li>
+                        }
+                    </ul>
+                    <div class="nav-actions">
+                        <span class="user-identity">
+                            <strong>@Context.Session.GetString("UserName")</strong>
+                            <small>@Context.Session.GetString("UserRole")</small>
+                        </span>
+                        <form asp-controller="Sync" asp-action="Manual" method="post">
+                            @Html.AntiForgeryToken()
+                            <input type="hidden" name="returnUrl" value="@(Context.Request.Path + Context.Request.QueryString)" />
+                            <span class="connection-pill" id="connectionStatus">Checking...</span>
+                            <button class="btn btn-primary" type="submit" data-manual-sync>Manual Sync</button>
+                        </form>
+                        <form asp-controller="Account" asp-action="Logout" method="post">
+                            @Html.AntiForgeryToken()
+                            <button class="btn btn-outline-secondary" type="submit">Logout</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </nav>
+    </header>
+
+    <div class="app-shell">
+        <main role="main">
+            @if (TempData["Success"] is string success)
+            {
+                <div class="flash success">@success</div>
+            }
+            @if (TempData["Error"] is string error)
+            {
+                <div class="flash error">@error</div>
+            }
+            @RenderBody()
+        </main>
+    </div>
+
+    <footer class="app-footer">
+        <div>&copy; 2026 MedRec EMR <span data-pwa-status></span></div>
+    </footer>
+
+    <script src="~/lib/jquery/dist/jquery.min.js"></script>
+    <script src="~/lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="~/js/site.js" asp-append-version="true"></script>
+    <script src="~/js/offline-store.js" asp-append-version="true"></script>
+    <script src="~/js/pwa-install.js" asp-append-version="true"></script>
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>

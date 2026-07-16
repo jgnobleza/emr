@@ -1,0 +1,24 @@
+@model medrec.Models.PrintLayout
+
+<header class="print-letterhead logo-@Model.LogoPositionClass details-@Model.DetailsAlignmentClass">
+    @if (!string.IsNullOrWhiteSpace(Model.LogoUrl))
+    {
+        <img class="print-logo" src="@Model.LogoUrl" alt="Clinic logo">
+    }
+    <div class="print-clinic-details">
+        <strong>@Model.ClinicName</strong>
+        <span>@Model.DoctorName</span>
+        @if (!string.IsNullOrWhiteSpace(Model.LicenseNumber))
+        {
+            <span>License No. @Model.LicenseNumber</span>
+        }
+        @if (!string.IsNullOrWhiteSpace(Model.ClinicAddress))
+        {
+            <span>@Model.ClinicAddress</span>
+        }
+        @if (!string.IsNullOrWhiteSpace(Model.ClinicSchedule))
+        {
+            <span>@Model.ClinicSchedule</span>
+        }
+    </div>
+</header>

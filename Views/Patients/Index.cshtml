@@ -1,0 +1,513 @@
+@model medrec.ViewModels.PatientsPageViewModel
+
+@{
+    ViewData["Title"] = "Patients";
+    string DateValue(DateOnly? value) => value?.ToString("yyyy-MM-dd") ?? string.Empty;
+    string DecimalValue(decimal? value) => value?.ToString("0.##") ?? string.Empty;
+    string BoolValue(bool? value) => value.HasValue ? value.Value.ToString().ToLowerInvariant() : string.Empty;
+    string PreviewClass(string? url) => string.IsNullOrWhiteSpace(url) ? "patient-photo-preview d-none" : "patient-photo-preview";
+    var menstrualAmountOptions = new[] { "Spotting", "Light", "Moderate", "Heavy", "Very heavy", "With clots" };
+}
+
+<section class="page-heading">
+    <div>
+        <p class="eyebrow">OB-Gyne</p>
+        <h1>Patients</h1>
+    </div>
+    <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#patientModal">Add patient</button>
+</section>
+
+@if (!string.IsNullOrWhiteSpace(Model.DataNotice))
+{
+    <div class="system-alert">@Model.DataNotice</div>
+}
+
+<section class="toolbar-panel dashboard-search">
+    <input class="form-control" type="search" placeholder="Search patients" data-table-search>
+</section>
+
+<section class="patient-cards">
+    @foreach (var patient in Model.Patients)
+    {
+        <article class="patient-card" data-status="@patient.SyncStatus.ToLowerInvariant()">
+            <div class="patient-card-head">
+                @if (!string.IsNullOrWhiteSpace(patient.PhotoUrl))
+                {
+                    <img class="avatar avatar-large avatar-img patient-card-photo" src="@patient.PhotoUrl" alt="@patient.FullName">
+                }
+                else
+                {
+                    <div class="avatar avatar-large patient-card-photo">@patient.FullName[..1]</div>
+                }
+                <div>
+                    <h2>@patient.FullName</h2>
+                    <span>@patient.Age years old - @patient.CivilStatus</span>
+                </div>
+            </div>
+            <dl class="detail-grid">
+                <div><dt>Contact No.</dt><dd>@patient.ContactNumber</dd></div>
+                <div><dt>Email Address</dt><dd>@patient.Email</dd></div>
+                <div><dt>Husband/Partner</dt><dd>@patient.PartnerName</dd></div>
+                <div><dt>Partner Contact No.</dt><dd>@patient.PartnerContactNumber</dd></div>
+                <div><dt>Menstrual Pattern</dt><dd>@patient.MenstrualPattern</dd></div>
+                <div><dt>Last Checkup Complaint</dt><dd>@patient.LastCheckupComplaintLabel</dd></div>
+                <div><dt>Sexually Active</dt><dd>@patient.SexuallyActiveLabel</dd></div>
+                <div><dt>BMI</dt><dd>@patient.BmiLabel</dd></div>
+                <div><dt>Age of Gestation</dt><dd>@patient.AgeOfGestationLabel</dd></div>
+                <div><dt>EDD</dt><dd>@patient.EstimatedDueDateLabel</dd></div>
+                <div><dt>Referred By</dt><dd>@patient.ReferredBy</dd></div>
+            </dl>
+            <div class="card-actions">
+                <button class="btn btn-outline-primary edit-patient-button"
+                        type="button"
+                        data-bs-toggle="modal"
+                        data-bs-target="#editPatientModal"
+                        data-id="@patient.Id"
+                        data-full-name="@patient.FullName"
+                        data-age="@patient.Age"
+                        data-address="@patient.Address"
+                        data-sex="@patient.Sex"
+                        data-civil-status="@patient.CivilStatus"
+                        data-contact-number="@patient.ContactNumber"
+                        data-occupation="@patient.Occupation"
+                        data-company="@patient.Company"
+                        data-email="@patient.Email"
+                        data-partner-name="@patient.PartnerName"
+                        data-partner-contact-number="@patient.PartnerContactNumber"
+                        data-referred-by="@patient.ReferredBy"
+                        data-age-of-menarche="@patient.AgeOfMenarche"
+                        data-menopause-age="@patient.MenopauseAge"
+                        data-previous-menstrual-period="@DateValue(patient.PreviousMenstrualPeriod)"
+                        data-period-cycle-days="@patient.PeriodCycleDays"
+                        data-period-duration-days="@patient.PeriodDurationDays"
+                        data-menstrual-amount="@patient.MenstrualAmount"
+                        data-menstrual-pattern="@patient.MenstrualPattern"
+                        data-sexually-active="@BoolValue(patient.SexuallyActive)"
+                        data-contraception-method="@patient.ContraceptionMethod"
+                        data-height-cm="@DecimalValue(patient.HeightCm)"
+                        data-weight-kg="@DecimalValue(patient.WeightKg)"
+                        data-blood-pressure="@patient.BloodPressure"
+                        data-fetal-heart-tone="@patient.FetalHeartTone"
+                        data-last-menstrual-period="@DateValue(patient.LastMenstrualPeriod)"
+                        data-photo-url="@patient.PhotoUrl">
+                    Edit info
+                </button>
+                <a class="btn btn-outline-primary" asp-controller="Records" asp-action="Index" asp-route-patientId="@patient.Id">Check ups</a>
+                <button class="btn archive-patient-button"
+                        type="button"
+                        data-bs-toggle="modal"
+                        data-bs-target="#archivePatientModal"
+                        data-patient-id="@patient.Id"
+                        data-patient-name="@patient.FullName"
+                        aria-label="Archive @patient.FullName"
+                        title="Archive patient">
+                    <span aria-hidden="true">🗑</span>
+                </button>
+            </div>
+        </article>
+    }
+</section>
+
+<div class="modal fade" id="archivePatientModal" tabindex="-1" aria-labelledby="archivePatientModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title fs-5" id="archivePatientModalLabel">Archive patient?</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-0">Archive <strong data-archive-patient-name>this patient</strong>? You can restore archived patients later.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary btn-compact" data-bs-dismiss="modal">Cancel</button>
+                <form asp-action="Archive" method="post" class="archive-patient-form">
+                    <input type="hidden" name="id" data-archive-patient-id>
+                    <button class="btn btn-danger btn-compact" type="submit">Archive</button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="patientModal" tabindex="-1" aria-labelledby="patientModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title fs-5" id="patientModalLabel">Add patient</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form asp-action="Create" method="post" enctype="multipart/form-data" data-offline-form data-ob-patient-form>
+                <div class="modal-body">
+                    <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+                    <div class="form-grid">
+                        <h3 class="form-section-title span-2">Basic Information</h3>
+                        <div>
+                            <label asp-for="NewPatient.FullName" class="form-label"></label>
+                            <input asp-for="NewPatient.FullName" class="form-control">
+                            <span asp-validation-for="NewPatient.FullName" class="text-danger"></span>
+                        </div>
+                        <div>
+                            <label asp-for="NewPatient.Age" class="form-label"></label>
+                            <input asp-for="NewPatient.Age" type="number" min="0" class="form-control">
+                            <span asp-validation-for="NewPatient.Age" class="text-danger"></span>
+                        </div>
+                        <div>
+                            <label asp-for="NewPatient.Sex" class="form-label"></label>
+                            <select asp-for="NewPatient.Sex" class="form-select">
+                                <option>Female</option>
+                                <option>Male</option>
+                            </select>
+                        </div>
+                        <div class="span-2">
+                            <label asp-for="NewPatient.Address" class="form-label"></label>
+                            <input asp-for="NewPatient.Address" class="form-control">
+                        </div>
+                        <div>
+                            <label asp-for="NewPatient.CivilStatus" class="form-label"></label>
+                            <select asp-for="NewPatient.CivilStatus" class="form-select">
+                                <option value="">Select</option>
+                                <option>Single</option>
+                                <option>Married</option>
+                                <option>Widowed</option>
+                                <option>Separated</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label asp-for="NewPatient.ContactNumber" class="form-label"></label>
+                            <input asp-for="NewPatient.ContactNumber" class="form-control">
+                        </div>
+                        <div>
+                            <label asp-for="NewPatient.Occupation" class="form-label"></label>
+                            <input asp-for="NewPatient.Occupation" class="form-control">
+                        </div>
+                        <div>
+                            <label asp-for="NewPatient.Company" class="form-label"></label>
+                            <input asp-for="NewPatient.Company" class="form-control">
+                        </div>
+                        <div>
+                            <label asp-for="NewPatient.Email" class="form-label"></label>
+                            <input asp-for="NewPatient.Email" class="form-control">
+                            <span asp-validation-for="NewPatient.Email" class="text-danger"></span>
+                        </div>
+                        <div>
+                            <label asp-for="NewPatient.PartnerName" class="form-label"></label>
+                            <input asp-for="NewPatient.PartnerName" class="form-control">
+                        </div>
+                        <div>
+                            <label asp-for="NewPatient.PartnerContactNumber" class="form-label"></label>
+                            <input asp-for="NewPatient.PartnerContactNumber" class="form-control">
+                        </div>
+                        <div>
+                            <label asp-for="NewPatient.ReferredBy" class="form-label"></label>
+                            <input asp-for="NewPatient.ReferredBy" class="form-control">
+                        </div>
+                        <div class="photo-field span-2">
+                            <div>
+                                <label asp-for="NewPatient.Photo" class="form-label"></label>
+                                <div class="upload-actions">
+                                    <button class="btn btn-outline-primary" type="button" data-file-picker-button>Choose file</button>
+                                    <button class="btn btn-outline-primary" type="button" data-camera-button>Open camera</button>
+                                </div>
+                                <input asp-for="NewPatient.Photo" type="file" accept="image/*" class="form-control upload-input-hidden" data-photo-input data-camera-capable>
+                                <small class="form-text text-muted" data-upload-file-name></small>
+                                <span asp-validation-for="NewPatient.Photo" class="text-danger"></span>
+                            </div>
+                            <div>
+                                <label asp-for="NewPatient.PhotoUrl" class="form-label"></label>
+                                <input asp-for="NewPatient.PhotoUrl" class="form-control" data-photo-url-input>
+                                <span asp-validation-for="NewPatient.PhotoUrl" class="text-danger"></span>
+                            </div>
+                            <img class="@PreviewClass(Model.NewPatient.PhotoUrl)" src="@Model.NewPatient.PhotoUrl" alt="Patient image preview" data-photo-preview>
+                            <div class="patient-photo-empty @(string.IsNullOrWhiteSpace(Model.NewPatient.PhotoUrl) ? "" : "d-none")" data-photo-preview-empty>Preview</div>
+                        </div>
+
+                        <h3 class="form-section-title span-2">Menstrual History</h3>
+                        <div>
+                            <label asp-for="NewPatient.AgeOfMenarche" class="form-label"></label>
+                            <input asp-for="NewPatient.AgeOfMenarche" type="number" min="0" class="form-control">
+                        </div>
+                        <div>
+                            <label asp-for="NewPatient.MenopauseAge" class="form-label"></label>
+                            <input asp-for="NewPatient.MenopauseAge" type="number" min="0" class="form-control">
+                        </div>
+                        <div>
+                            <label asp-for="NewPatient.PreviousMenstrualPeriod" class="form-label"></label>
+                            <input asp-for="NewPatient.PreviousMenstrualPeriod" type="date" class="form-control">
+                        </div>
+                        <div class="period-grid">
+                            <div>
+                                <label asp-for="NewPatient.PeriodCycleDays" class="form-label"></label>
+                                <input asp-for="NewPatient.PeriodCycleDays" type="number" min="0" class="form-control">
+                            </div>
+                            <div>
+                                <label asp-for="NewPatient.PeriodDurationDays" class="form-label"></label>
+                                <input asp-for="NewPatient.PeriodDurationDays" type="number" min="0" class="form-control">
+                            </div>
+                            <div>
+                                <label asp-for="NewPatient.MenstrualAmount" class="form-label"></label>
+                                <select asp-for="NewPatient.MenstrualAmount" class="form-select">
+                                    <option value="">Select</option>
+                                    @foreach (var amount in menstrualAmountOptions)
+                                    {
+                                        <option value="@amount">@amount</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+                        <div>
+                            <label asp-for="NewPatient.MenstrualPattern" class="form-label"></label>
+                            <select asp-for="NewPatient.MenstrualPattern" class="form-select">
+                                <option>Regular</option>
+                                <option>Irregular</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label asp-for="NewPatient.SexuallyActive" class="form-label"></label>
+                            <select asp-for="NewPatient.SexuallyActive" class="form-select">
+                                <option value="">Select</option>
+                                <option value="true">Yes</option>
+                                <option value="false">No</option>
+                            </select>
+                        </div>
+                        <div class="span-2">
+                            <label asp-for="NewPatient.ContraceptionMethod" class="form-label"></label>
+                            <input asp-for="NewPatient.ContraceptionMethod" class="form-control">
+                        </div>
+
+                        <h3 class="form-section-title span-2">OB Assessment</h3>
+                        <div>
+                            <label asp-for="NewPatient.HeightCm" class="form-label">Height (cm)</label>
+                            <input asp-for="NewPatient.HeightCm" type="number" step="0.01" min="0" class="form-control" data-height-input>
+                        </div>
+                        <div>
+                            <label asp-for="NewPatient.WeightKg" class="form-label">Weight (kg)</label>
+                            <input asp-for="NewPatient.WeightKg" type="number" step="0.01" min="0" class="form-control" data-weight-input>
+                        </div>
+                        <div>
+                            <label asp-for="NewPatient.BloodPressure" class="form-label"></label>
+                            <input asp-for="NewPatient.BloodPressure" class="form-control">
+                        </div>
+                        <div>
+                            <label asp-for="NewPatient.FetalHeartTone" class="form-label"></label>
+                            <input asp-for="NewPatient.FetalHeartTone" class="form-control">
+                        </div>
+                        <div>
+                            <label class="form-label">BMI</label>
+                            <input class="form-control" readonly data-bmi-output>
+                        </div>
+                        <div>
+                            <label asp-for="NewPatient.LastMenstrualPeriod" class="form-label"></label>
+                            <input asp-for="NewPatient.LastMenstrualPeriod" type="date" class="form-control" data-lmp-input>
+                        </div>
+                        <div>
+                            <label class="form-label">Age of Gestation</label>
+                            <input class="form-control" readonly data-aog-output>
+                        </div>
+                        <div>
+                            <label class="form-label">EDD</label>
+                            <input class="form-control" readonly data-edd-output>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancel</button>
+                    <button class="btn btn-primary" type="submit">Save patient</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="editPatientModal" tabindex="-1" aria-labelledby="editPatientModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title fs-5" id="editPatientModalLabel">Edit patient</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form asp-action="Edit" method="post" enctype="multipart/form-data" data-ob-patient-form>
+                <div class="modal-body">
+                    <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+                    <input asp-for="EditPatient.Id" type="hidden">
+                    <div class="form-grid">
+                        <h3 class="form-section-title span-2">Basic Information</h3>
+                        <div>
+                            <label asp-for="EditPatient.FullName" class="form-label"></label>
+                            <input asp-for="EditPatient.FullName" class="form-control">
+                            <span asp-validation-for="EditPatient.FullName" class="text-danger"></span>
+                        </div>
+                        <div>
+                            <label asp-for="EditPatient.Age" class="form-label"></label>
+                            <input asp-for="EditPatient.Age" type="number" min="0" class="form-control">
+                            <span asp-validation-for="EditPatient.Age" class="text-danger"></span>
+                        </div>
+                        <div>
+                            <label asp-for="EditPatient.Sex" class="form-label"></label>
+                            <select asp-for="EditPatient.Sex" class="form-select">
+                                <option>Female</option>
+                                <option>Male</option>
+                            </select>
+                        </div>
+                        <div class="span-2">
+                            <label asp-for="EditPatient.Address" class="form-label"></label>
+                            <input asp-for="EditPatient.Address" class="form-control">
+                        </div>
+                        <div>
+                            <label asp-for="EditPatient.CivilStatus" class="form-label"></label>
+                            <select asp-for="EditPatient.CivilStatus" class="form-select">
+                                <option value="">Select</option>
+                                <option>Single</option>
+                                <option>Married</option>
+                                <option>Widowed</option>
+                                <option>Separated</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label asp-for="EditPatient.ContactNumber" class="form-label"></label>
+                            <input asp-for="EditPatient.ContactNumber" class="form-control">
+                        </div>
+                        <div>
+                            <label asp-for="EditPatient.Occupation" class="form-label"></label>
+                            <input asp-for="EditPatient.Occupation" class="form-control">
+                        </div>
+                        <div>
+                            <label asp-for="EditPatient.Company" class="form-label"></label>
+                            <input asp-for="EditPatient.Company" class="form-control">
+                        </div>
+                        <div>
+                            <label asp-for="EditPatient.Email" class="form-label"></label>
+                            <input asp-for="EditPatient.Email" class="form-control">
+                            <span asp-validation-for="EditPatient.Email" class="text-danger"></span>
+                        </div>
+                        <div>
+                            <label asp-for="EditPatient.PartnerName" class="form-label"></label>
+                            <input asp-for="EditPatient.PartnerName" class="form-control">
+                        </div>
+                        <div>
+                            <label asp-for="EditPatient.PartnerContactNumber" class="form-label"></label>
+                            <input asp-for="EditPatient.PartnerContactNumber" class="form-control">
+                        </div>
+                        <div>
+                            <label asp-for="EditPatient.ReferredBy" class="form-label"></label>
+                            <input asp-for="EditPatient.ReferredBy" class="form-control">
+                        </div>
+                        <div class="photo-field span-2">
+                            <div>
+                                <label asp-for="EditPatient.Photo" class="form-label"></label>
+                                <div class="upload-actions">
+                                    <button class="btn btn-outline-primary" type="button" data-file-picker-button>Choose file</button>
+                                    <button class="btn btn-outline-primary" type="button" data-camera-button>Open camera</button>
+                                </div>
+                                <input asp-for="EditPatient.Photo" type="file" accept="image/*" class="form-control upload-input-hidden" data-photo-input data-camera-capable>
+                                <small class="form-text text-muted" data-upload-file-name></small>
+                                <span asp-validation-for="EditPatient.Photo" class="text-danger"></span>
+                            </div>
+                            <div>
+                                <label asp-for="EditPatient.PhotoUrl" class="form-label"></label>
+                                <input asp-for="EditPatient.PhotoUrl" class="form-control" data-photo-url-input>
+                                <span asp-validation-for="EditPatient.PhotoUrl" class="text-danger"></span>
+                            </div>
+                            <img class="@PreviewClass(Model.EditPatient.PhotoUrl)" src="@Model.EditPatient.PhotoUrl" alt="Patient image preview" data-photo-preview>
+                            <div class="patient-photo-empty @(string.IsNullOrWhiteSpace(Model.EditPatient.PhotoUrl) ? "" : "d-none")" data-photo-preview-empty>Preview</div>
+                        </div>
+
+                        <h3 class="form-section-title span-2">Menstrual History</h3>
+                        <div>
+                            <label asp-for="EditPatient.AgeOfMenarche" class="form-label"></label>
+                            <input asp-for="EditPatient.AgeOfMenarche" type="number" min="0" class="form-control">
+                        </div>
+                        <div>
+                            <label asp-for="EditPatient.MenopauseAge" class="form-label"></label>
+                            <input asp-for="EditPatient.MenopauseAge" type="number" min="0" class="form-control">
+                        </div>
+                        <div>
+                            <label asp-for="EditPatient.PreviousMenstrualPeriod" class="form-label"></label>
+                            <input asp-for="EditPatient.PreviousMenstrualPeriod" type="date" class="form-control">
+                        </div>
+                        <div class="period-grid">
+                            <div>
+                                <label asp-for="EditPatient.PeriodCycleDays" class="form-label"></label>
+                                <input asp-for="EditPatient.PeriodCycleDays" type="number" min="0" class="form-control">
+                            </div>
+                            <div>
+                                <label asp-for="EditPatient.PeriodDurationDays" class="form-label"></label>
+                                <input asp-for="EditPatient.PeriodDurationDays" type="number" min="0" class="form-control">
+                            </div>
+                            <div>
+                                <label asp-for="EditPatient.MenstrualAmount" class="form-label"></label>
+                                <select asp-for="EditPatient.MenstrualAmount" class="form-select">
+                                    <option value="">Select</option>
+                                    @foreach (var amount in menstrualAmountOptions)
+                                    {
+                                        <option value="@amount">@amount</option>
+                                    }
+                                </select>
+                            </div>
+                        </div>
+                        <div>
+                            <label asp-for="EditPatient.MenstrualPattern" class="form-label"></label>
+                            <select asp-for="EditPatient.MenstrualPattern" class="form-select">
+                                <option>Regular</option>
+                                <option>Irregular</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label asp-for="EditPatient.SexuallyActive" class="form-label"></label>
+                            <select asp-for="EditPatient.SexuallyActive" class="form-select">
+                                <option value="">Select</option>
+                                <option value="true">Yes</option>
+                                <option value="false">No</option>
+                            </select>
+                        </div>
+                        <div class="span-2">
+                            <label asp-for="EditPatient.ContraceptionMethod" class="form-label"></label>
+                            <input asp-for="EditPatient.ContraceptionMethod" class="form-control">
+                        </div>
+
+                        <h3 class="form-section-title span-2">OB Assessment</h3>
+                        <div>
+                            <label asp-for="EditPatient.HeightCm" class="form-label">Height (cm)</label>
+                            <input asp-for="EditPatient.HeightCm" type="number" step="0.01" min="0" class="form-control" data-height-input>
+                        </div>
+                        <div>
+                            <label asp-for="EditPatient.WeightKg" class="form-label">Weight (kg)</label>
+                            <input asp-for="EditPatient.WeightKg" type="number" step="0.01" min="0" class="form-control" data-weight-input>
+                        </div>
+                        <div>
+                            <label asp-for="EditPatient.BloodPressure" class="form-label"></label>
+                            <input asp-for="EditPatient.BloodPressure" class="form-control">
+                        </div>
+                        <div>
+                            <label asp-for="EditPatient.FetalHeartTone" class="form-label"></label>
+                            <input asp-for="EditPatient.FetalHeartTone" class="form-control">
+                        </div>
+                        <div>
+                            <label class="form-label">BMI</label>
+                            <input class="form-control" readonly data-bmi-output>
+                        </div>
+                        <div>
+                            <label asp-for="EditPatient.LastMenstrualPeriod" class="form-label"></label>
+                            <input asp-for="EditPatient.LastMenstrualPeriod" type="date" class="form-control" data-lmp-input>
+                        </div>
+                        <div>
+                            <label class="form-label">Age of Gestation</label>
+                            <input class="form-control" readonly data-aog-output>
+                        </div>
+                        <div>
+                            <label class="form-label">EDD</label>
+                            <input class="form-control" readonly data-edd-output>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancel</button>
+                    <button class="btn btn-primary" type="submit">Save changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}

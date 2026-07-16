@@ -1,0 +1,17 @@
+{
+  "name": "MedRec EMR",
+  "short_name": "MedRec",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f5f8fb",
+  "theme_color": "#146c94",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "any",
+      "type": "image/x-icon"
+    }
+  ]
+}

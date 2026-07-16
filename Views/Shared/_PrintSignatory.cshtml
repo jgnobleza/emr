@@ -1,0 +1,14 @@
+@model medrec.Models.PrintLayout
+
+<footer class="print-signatory">
+    <div class="signature-line"></div>
+    <strong>@Model.SignatoryName</strong>
+    @if (!string.IsNullOrWhiteSpace(Model.SignatoryTitle))
+    {
+        <span>@Model.SignatoryTitle</span>
+    }
+    @if (!string.IsNullOrWhiteSpace(Model.LicenseNumber))
+    {
+        <span>License No. @Model.LicenseNumber</span>
+    }
+</footer>

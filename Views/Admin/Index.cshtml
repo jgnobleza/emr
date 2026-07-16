@@ -1,0 +1,152 @@
+@model medrec.ViewModels.AdminPageViewModel
+
+@{
+    ViewData["Title"] = "Administration";
+}
+
+<section class="page-heading">
+    <div>
+        <p class="eyebrow">Administrator only</p>
+        <h1>Administration</h1>
+    </div>
+</section>
+
+@if (!string.IsNullOrWhiteSpace(Model.DataNotice))
+{
+    <div class="system-alert">@Model.DataNotice</div>
+}
+
+<section class="admin-grid">
+    <article class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>Doctor accounts</h2>
+                <p class="text-muted mb-0">Create credentials for doctors who use MedRec.</p>
+            </div>
+        </div>
+
+        <form asp-action="CreateDoctor" method="post" class="account-form">
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+            <div>
+                <label asp-for="NewDoctor.FullName" class="form-label"></label>
+                <input asp-for="NewDoctor.FullName" class="form-control" autocomplete="name">
+                <span asp-validation-for="NewDoctor.FullName" class="text-danger"></span>
+            </div>
+            <div>
+                <label asp-for="NewDoctor.Email" class="form-label"></label>
+                <input asp-for="NewDoctor.Email" class="form-control" autocomplete="username">
+                <span asp-validation-for="NewDoctor.Email" class="text-danger"></span>
+            </div>
+            <div>
+                <label asp-for="NewDoctor.Password" class="form-label"></label>
+                <input asp-for="NewDoctor.Password" class="form-control" autocomplete="new-password">
+                <span asp-validation-for="NewDoctor.Password" class="text-danger"></span>
+            </div>
+            <div>
+                <label asp-for="NewDoctor.ConfirmPassword" class="form-label"></label>
+                <input asp-for="NewDoctor.ConfirmPassword" class="form-control" autocomplete="new-password">
+                <span asp-validation-for="NewDoctor.ConfirmPassword" class="text-danger"></span>
+            </div>
+            <button class="btn btn-primary" type="submit">Create doctor account</button>
+        </form>
+
+        <div class="table-responsive account-table">
+            <table class="table app-table">
+                <thead><tr><th>Name</th><th>Username / email</th><th>Role</th><th>Status</th></tr></thead>
+                <tbody>
+                @foreach (var user in Model.Users)
+                {
+                    <tr>
+                        <td>@user.FullName</td>
+                        <td>@user.Email</td>
+                        <td><span class="role-badge">@user.Role</span></td>
+                        <td>@(user.IsActive ? "Active" : "Inactive")</td>
+                    </tr>
+                }
+                </tbody>
+            </table>
+        </div>
+    </article>
+
+    <article class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>Archived patients</h2>
+                <p class="text-muted mb-0">Restore patients that were removed from the active patient list.</p>
+            </div>
+        </div>
+
+        @if (Model.ArchivedPatients.Count == 0)
+        {
+            <p class="empty-state">There are no archived patients.</p>
+        }
+        else
+        {
+            <div class="table-responsive account-table">
+                <table class="table app-table">
+                    <thead>
+                    <tr><th>Patient no.</th><th>Name</th><th>Age</th><th>Sex</th><th>Archived</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                    @foreach (var patient in Model.ArchivedPatients)
+                    {
+                        <tr>
+                            <td>@patient.PatientNumber</td>
+                            <td>@patient.FullName</td>
+                            <td>@patient.Age</td>
+                            <td>@patient.Sex</td>
+                            <td>@patient.ArchivedAt?.ToString("MMM d, yyyy h:mm tt")</td>
+                            <td>
+                                <form asp-action="UnarchivePatient" method="post" data-confirm="Restore this patient to the active list?">
+                                    <input type="hidden" name="id" value="@patient.Id">
+                                    <button class="btn btn-outline-primary" type="submit">Restore</button>
+                                </form>
+                            </td>
+                        </tr>
+                    }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </article>
+
+    <article class="panel">
+        <div class="panel-header">
+            <div>
+                <h2>Document layouts</h2>
+                <p class="text-muted mb-0">Manage the templates doctors use when printing.</p>
+            </div>
+        </div>
+        <div class="layout-admin-actions">
+            <button class="btn btn-primary" type="button" data-bs-toggle="modal" data-bs-target="#prescriptionLayoutModal">Edit prescription layout</button>
+            <button class="btn btn-outline-primary" type="button" data-bs-toggle="modal" data-bs-target="#diagnosisLayoutModal">Edit diagnosis layout</button>
+        </div>
+    </article>
+
+    <article class="panel">
+        <h2>System settings</h2>
+        <dl class="settings-list">
+            <div><dt>Patient images</dt><dd><code>wwwroot/uploads/patients</code></dd></div>
+            <div><dt>Automatic sync</dt><dd>Daily at 6:00 PM</dd></div>
+            <div><dt>Database</dt><dd>MySQL connection configured by the server administrator</dd></div>
+        </dl>
+    </article>
+</section>
+
+<partial name="~/Views/Reports/_PrintLayoutModal.cshtml" model="@(new medrec.ViewModels.PrintLayoutEditorViewModel
+{
+    ModalId = "prescriptionLayoutModal", Action = "UpdatePrescriptionLayout", Controller = "Admin",
+    Prefix = "PrescriptionLayoutForm", Title = "Prescription Layout",
+    Layout = Model.PrescriptionLayout, Form = Model.PrescriptionLayoutForm
+})" />
+
+<partial name="~/Views/Reports/_PrintLayoutModal.cshtml" model="@(new medrec.ViewModels.PrintLayoutEditorViewModel
+{
+    ModalId = "diagnosisLayoutModal", Action = "UpdateDiagnosisLayout", Controller = "Admin",
+    Prefix = "DiagnosisLayoutForm", Title = "Diagnosis Layout",
+    Layout = Model.DiagnosisLayout, Form = Model.DiagnosisLayoutForm
+})" />
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}
