@@ -306,7 +306,7 @@ public sealed class RecordsController : Controller
     {
         return ex is InvalidOperationException
             ? ex.Message
-            : "Save failed. Check the MySQL connection and schema.";
+            : "Save failed. Check the PostgreSQL connection and schema.";
     }
 
     private RecordFormModel PrepareRecordForm(RecordFormModel form)
@@ -322,3 +322,4 @@ public sealed class RecordsController : Controller
             : "Doctor";
     }
 }
+

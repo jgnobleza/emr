@@ -41,7 +41,7 @@ public sealed class AdminController : Controller
         }
         catch (Exception ex)
         {
-            ModelState.AddModelError("NewDoctor.Email", ex is InvalidOperationException ? ex.Message : "Account creation failed. Check the MySQL connection.");
+            ModelState.AddModelError("NewDoctor.Email", ex is InvalidOperationException ? ex.Message : "Account creation failed. Check the PostgreSQL connection.");
             return View("Index", await BuildPageAsync(newDoctor: form));
         }
     }
@@ -262,3 +262,4 @@ public sealed class AdminController : Controller
         return $"/uploads/{folder}/{fileName}";
     }
 }
+

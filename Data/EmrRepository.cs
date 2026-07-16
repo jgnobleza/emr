@@ -1,15 +1,15 @@
 using medrec.Models;
 using medrec.ViewModels;
-using MySqlConnector;
+using Npgsql;
 
 namespace medrec.Data;
 
 public sealed class EmrRepository
 {
-    private readonly MySqlConnectionFactory _connectionFactory;
+    private readonly PostgresConnectionFactory _connectionFactory;
     private readonly ILogger<EmrRepository> _logger;
 
-    public EmrRepository(MySqlConnectionFactory connectionFactory, ILogger<EmrRepository> logger)
+    public EmrRepository(PostgresConnectionFactory connectionFactory, ILogger<EmrRepository> logger)
     {
         _connectionFactory = connectionFactory;
         _logger = logger;
@@ -45,9 +45,9 @@ public sealed class EmrRepository
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Unable to load EMR data from MySQL. Demo data is being shown.");
+            _logger.LogWarning(ex, "Unable to load EMR data from PostgreSQL. Demo data is being shown.");
             var demo = DemoData(includeDatabaseFlag: true);
-            demo.DataNotice = "MySQL is configured, but the app could not read from it. Demo data is shown until the database is reachable and schema.sql has been applied.";
+            demo.DataNotice = "PostgreSQL is configured, but the app could not read from it. Demo data is shown until the database is reachable and schema.sql has been applied.";
             return demo;
         }
     }
@@ -81,16 +81,15 @@ public sealed class EmrRepository
                height_cm, weight_kg, blood_pressure, fetal_heart_tone, last_menstrual_period, photo_url,
                sync_status)
             VALUES
-              (UUID(), @patientNumber, @fullName, @age, @address, @sex, @civilStatus, @contactNumber, @occupation, @company,
+              (gen_random_uuid()::text, @patientNumber, @fullName, @age, @address, @sex, @civilStatus, @contactNumber, @occupation, @company,
                @email, @partnerName, @partnerContactNumber, @referredBy, @ageOfMenarche,
                @menopauseAge, @previousMenstrualPeriod, @periodCycleDays, @periodDurationDays,
                @menstrualAmount, @menstrualPattern, @sexuallyActive, @contraceptionMethod,
                @heightCm, @weightKg, @bloodPressure, @fetalHeartTone, @lastMenstrualPeriod, @photoUrl,
-               'Pending');
-            SELECT LAST_INSERT_ID();
+               'Pending') RETURNING id;
             """;
 
-        await using var command = new MySqlCommand(sql, connection, transaction);
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
         command.Parameters.AddWithValue("@patientNumber", $"OB-{DateTime.Now:yyyyMMddHHmmssfff}");
         AddPatientParameters(command, form);
         command.Parameters.AddWithValue("@photoUrl", string.IsNullOrWhiteSpace(photoUrl) ? DBNull.Value : photoUrl.Trim());
@@ -140,7 +139,7 @@ public sealed class EmrRepository
             WHERE id = @id AND archived_at IS NULL;
             """;
 
-        await using var command = new MySqlCommand(sql, connection, transaction);
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
         command.Parameters.AddWithValue("@id", form.Id);
         AddPatientParameters(command, form);
         command.Parameters.AddWithValue("@photoUrl", string.IsNullOrWhiteSpace(photoUrl) ? DBNull.Value : photoUrl.Trim());
@@ -163,7 +162,7 @@ public sealed class EmrRepository
             WHERE id = @id AND archived_at IS NULL;
             """;
 
-        await using var command = new MySqlCommand(sql, connection, transaction);
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
         command.Parameters.AddWithValue("@id", id);
         await command.ExecuteNonQueryAsync();
 
@@ -180,7 +179,7 @@ public sealed class EmrRepository
             WHERE archived_at IS NOT NULL
             ORDER BY archived_at DESC, full_name ASC;
             """;
-        await using var command = new MySqlCommand(sql, connection);
+        await using var command = new NpgsqlCommand(sql, connection);
         await using var reader = await command.ExecuteReaderAsync();
         var patients = new List<Patient>();
         while (await reader.ReadAsync())
@@ -213,7 +212,7 @@ public sealed class EmrRepository
                 updated_at = CURRENT_TIMESTAMP
             WHERE id = @id AND archived_at IS NOT NULL;
             """;
-        await using var command = new MySqlCommand(sql, connection, transaction);
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
         command.Parameters.AddWithValue("@id", id);
         if (await command.ExecuteNonQueryAsync() == 0)
         {
@@ -234,12 +233,11 @@ public sealed class EmrRepository
               (client_uid, patient_id, visit_date, height_cm, weight_kg, blood_pressure, fetal_heart_rate, temperature_c,
                chief_complaint, diagnosis, notes, doctor_name, sync_status)
             VALUES
-              (UUID(), @patientId, @visitDate, @heightCm, @weightKg, @bloodPressure, @fetalHeartRate, @temperatureC,
-               @chiefComplaint, @diagnosis, @notes, @doctorName, 'Pending');
-            SELECT LAST_INSERT_ID();
+              (gen_random_uuid()::text, @patientId, @visitDate, @heightCm, @weightKg, @bloodPressure, @fetalHeartRate, @temperatureC,
+               @chiefComplaint, @diagnosis, @notes, @doctorName, 'Pending') RETURNING id;
             """;
 
-        await using var command = new MySqlCommand(sql, connection, transaction);
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
         command.Parameters.AddWithValue("@patientId", form.PatientId);
         command.Parameters.AddWithValue("@visitDate", form.VisitDate);
         AddClinicalRecordVitalsParameters(command, form);
@@ -268,7 +266,7 @@ public sealed class EmrRepository
             WHERE id = @id;
             """;
 
-        await using var command = new MySqlCommand(sql, connection, transaction);
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
         command.Parameters.AddWithValue("@id", form.RecordId);
         command.Parameters.AddWithValue("@diagnosis", form.Diagnosis.Trim());
         command.Parameters.AddWithValue("@notes", form.Notes.Trim());
@@ -296,7 +294,7 @@ public sealed class EmrRepository
             WHERE id = @id;
             """;
 
-        await using var command = new MySqlCommand(sql, connection, transaction);
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
         command.Parameters.AddWithValue("@id", form.RecordId);
         command.Parameters.AddWithValue("@chiefComplaint", form.ChiefComplaint.Trim());
         AddClinicalRecordVitalsParameters(command, form);
@@ -315,11 +313,10 @@ public sealed class EmrRepository
             INSERT INTO lab_results
               (client_uid, patient_id, clinical_record_id, test_name, requested_date, result_date, status, file_url, notes, sync_status)
             VALUES
-              (UUID(), @patientId, @recordId, @testName, @requestedDate, @resultDate, 'Uploaded', @fileUrl, @notes, 'Pending');
-            SELECT LAST_INSERT_ID();
+              (gen_random_uuid()::text, @patientId, @recordId, @testName, @requestedDate, @resultDate, 'Uploaded', @fileUrl, @notes, 'Pending') RETURNING id;
             """;
 
-        await using var command = new MySqlCommand(sql, connection, transaction);
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
         command.Parameters.AddWithValue("@patientId", form.PatientId);
         command.Parameters.AddWithValue("@recordId", form.ClinicalRecordId.HasValue ? form.ClinicalRecordId.Value : DBNull.Value);
         command.Parameters.AddWithValue("@testName", form.TestName.Trim());
@@ -348,7 +345,7 @@ public sealed class EmrRepository
               AND r.patient_id = l.patient_id;
             """;
 
-        await using (var validateCommand = new MySqlCommand(validateSql, connection, transaction))
+        await using (var validateCommand = new NpgsqlCommand(validateSql, connection, transaction))
         {
             validateCommand.Parameters.AddWithValue("@labId", form.LabId);
             validateCommand.Parameters.AddWithValue("@patientId", form.PatientId);
@@ -371,7 +368,7 @@ public sealed class EmrRepository
               AND patient_id = @patientId;
             """;
 
-        await using var command = new MySqlCommand(sql, connection, transaction);
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
         command.Parameters.AddWithValue("@labId", form.LabId);
         command.Parameters.AddWithValue("@patientId", form.PatientId);
         command.Parameters.AddWithValue("@recordId", form.ClinicalRecordId!.Value);
@@ -399,12 +396,11 @@ public sealed class EmrRepository
               (client_uid, patient_id, clinical_record_id, issued_at, medication, dosage, frequency,
                duration, instructions, prescriber, sync_status)
             VALUES
-              (UUID(), @patientId, @recordId, CURRENT_TIMESTAMP, @medication, @dosage, @frequency,
-               @duration, @instructions, @prescriber, 'Pending');
-            SELECT LAST_INSERT_ID();
+              (gen_random_uuid()::text, @patientId, @recordId, CURRENT_TIMESTAMP, @medication, @dosage, @frequency,
+               @duration, @instructions, @prescriber, 'Pending') RETURNING id;
             """;
 
-        await using var command = new MySqlCommand(sql, connection, transaction);
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
         command.Parameters.AddWithValue("@patientId", form.PatientId);
         command.Parameters.AddWithValue("@recordId", form.ClinicalRecordId.HasValue ? form.ClinicalRecordId.Value : DBNull.Value);
         command.Parameters.AddWithValue("@medication", firstItem.Medication.Trim());
@@ -427,8 +423,8 @@ public sealed class EmrRepository
     }
 
     private static async Task AddPrescriptionItemAsync(
-        MySqlConnection connection,
-        MySqlTransaction transaction,
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
         int prescriptionId,
         PrescriptionItemFormModel item,
         int sortOrder)
@@ -440,7 +436,7 @@ public sealed class EmrRepository
               (@prescriptionId, @medication, @dosage, @frequency, @duration, @sortOrder);
             """;
 
-        await using var command = new MySqlCommand(sql, connection, transaction);
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
         command.Parameters.AddWithValue("@prescriptionId", prescriptionId);
         command.Parameters.AddWithValue("@medication", item.Medication.Trim());
         command.Parameters.AddWithValue("@dosage", item.Dosage.Trim());
@@ -461,7 +457,7 @@ public sealed class EmrRepository
             WHERE id = @id;
             """;
 
-        await using var command = new MySqlCommand(sql, connection);
+        await using var command = new NpgsqlCommand(sql, connection);
         command.Parameters.AddWithValue("@id", id);
         await command.ExecuteNonQueryAsync();
     }
@@ -483,25 +479,25 @@ public sealed class EmrRepository
                logo_url, logo_position, details_alignment, signatory_name, signatory_title, layout_json)
             VALUES
               (@id, @documentType, @documentTitle, @clinicName, @doctorName, @licenseNumber, @clinicSchedule, @clinicAddress,
-               @logoUrl, @logoPosition, @detailsAlignment, @signatoryName, @signatoryTitle, @layoutJson)
-            ON DUPLICATE KEY UPDATE
-              document_type = VALUES(document_type),
-              document_title = VALUES(document_title),
-              clinic_name = VALUES(clinic_name),
-              doctor_name = VALUES(doctor_name),
-              license_number = VALUES(license_number),
-              clinic_schedule = VALUES(clinic_schedule),
-              clinic_address = VALUES(clinic_address),
-              logo_url = VALUES(logo_url),
-              logo_position = VALUES(logo_position),
-              details_alignment = VALUES(details_alignment),
-              signatory_name = VALUES(signatory_name),
-              signatory_title = VALUES(signatory_title),
-              layout_json = VALUES(layout_json),
+               @logoUrl, @logoPosition, @detailsAlignment, @signatoryName, @signatoryTitle, @layoutJson::jsonb)
+            ON CONFLICT (id) DO UPDATE SET
+              document_type = EXCLUDED.document_type,
+              document_title = EXCLUDED.document_title,
+              clinic_name = EXCLUDED.clinic_name,
+              doctor_name = EXCLUDED.doctor_name,
+              license_number = EXCLUDED.license_number,
+              clinic_schedule = EXCLUDED.clinic_schedule,
+              clinic_address = EXCLUDED.clinic_address,
+              logo_url = EXCLUDED.logo_url,
+              logo_position = EXCLUDED.logo_position,
+              details_alignment = EXCLUDED.details_alignment,
+              signatory_name = EXCLUDED.signatory_name,
+              signatory_title = EXCLUDED.signatory_title,
+              layout_json = EXCLUDED.layout_json,
               updated_at = CURRENT_TIMESTAMP;
             """;
 
-        await using var command = new MySqlCommand(sql, connection);
+        await using var command = new NpgsqlCommand(sql, connection);
         command.Parameters.AddWithValue("@id", layoutId);
         command.Parameters.AddWithValue("@documentType", normalizedDocumentType);
         command.Parameters.AddWithValue("@documentTitle", documentTitle);
@@ -519,10 +515,10 @@ public sealed class EmrRepository
         await command.ExecuteNonQueryAsync();
     }
 
-    private static async Task<int> ResolvePrintLayoutIdAsync(MySqlConnection connection, string documentType, int defaultId)
+    private static async Task<int> ResolvePrintLayoutIdAsync(NpgsqlConnection connection, string documentType, int defaultId)
     {
         const string sql = "SELECT id FROM print_layouts WHERE LOWER(document_type) = LOWER(@documentType) ORDER BY updated_at DESC LIMIT 1;";
-        await using var command = new MySqlCommand(sql, connection);
+        await using var command = new NpgsqlCommand(sql, connection);
         command.Parameters.AddWithValue("@documentType", documentType);
         var result = await command.ExecuteScalarAsync();
         return result is null || result is DBNull ? defaultId : Convert.ToInt32(result);
@@ -534,7 +530,7 @@ public sealed class EmrRepository
         await using var transaction = await connection.BeginTransactionAsync();
 
         const string countSql = "SELECT COUNT(*) FROM sync_queue WHERE status = 'Pending';";
-        await using var countCommand = new MySqlCommand(countSql, connection, transaction);
+        await using var countCommand = new NpgsqlCommand(countSql, connection, transaction);
         var pendingCount = Convert.ToInt32(await countCommand.ExecuteScalarAsync());
 
         var statements = new[]
@@ -552,7 +548,7 @@ public sealed class EmrRepository
 
         foreach (var statement in statements)
         {
-            await using var command = new MySqlCommand(statement, connection, transaction);
+            await using var command = new NpgsqlCommand(statement, connection, transaction);
             command.Parameters.AddWithValue("@pendingCount", pendingCount);
             await command.ExecuteNonQueryAsync();
         }
@@ -572,22 +568,30 @@ public sealed class EmrRepository
 
                 const string fixLabLinksSql = """
                         UPDATE lab_results l
-                        LEFT JOIN clinical_records r ON r.id = l.clinical_record_id
-                        SET l.clinical_record_id = NULL,
-                                l.sync_status = 'Pending',
-                                l.updated_at = CURRENT_TIMESTAMP
+                        SET clinical_record_id = NULL,
+                            sync_status = 'Pending',
+                            updated_at = CURRENT_TIMESTAMP
                         WHERE l.clinical_record_id IS NOT NULL
-                            AND (r.id IS NULL OR r.patient_id <> l.patient_id);
+                          AND NOT EXISTS (
+                            SELECT 1
+                            FROM clinical_records r
+                            WHERE r.id = l.clinical_record_id
+                              AND r.patient_id = l.patient_id
+                          );
                         """;
 
                 const string fixPrescriptionLinksSql = """
                         UPDATE prescriptions p
-                        LEFT JOIN clinical_records r ON r.id = p.clinical_record_id
-                        SET p.clinical_record_id = NULL,
-                                p.sync_status = 'Pending',
-                                p.updated_at = CURRENT_TIMESTAMP
+                        SET clinical_record_id = NULL,
+                            sync_status = 'Pending',
+                            updated_at = CURRENT_TIMESTAMP
                         WHERE p.clinical_record_id IS NOT NULL
-                            AND (r.id IS NULL OR r.patient_id <> p.patient_id);
+                          AND NOT EXISTS (
+                            SELECT 1
+                            FROM clinical_records r
+                            WHERE r.id = p.clinical_record_id
+                              AND r.patient_id = p.patient_id
+                          );
                         """;
 
                 const string insertMissingItemsSql = """
@@ -614,11 +618,11 @@ public sealed class EmrRepository
                 return $"clinical_records normalized: complaints={normalizedComplaints}, diagnoses={normalizedDiagnoses}, doctors={normalizedDoctors}; links fixed: labs={fixedLabLinks}, prescriptions={fixedPrescriptionLinks}; prescription_items added={addedPrescriptionItems}.";
         }
 
-    private async Task<MySqlConnection> OpenConnectionAsync()
+    private async Task<NpgsqlConnection> OpenConnectionAsync()
     {
         if (!_connectionFactory.IsConfigured)
         {
-            throw new InvalidOperationException("MySQL is not configured.");
+            throw new InvalidOperationException("PostgreSQL is not configured.");
         }
 
         var connection = _connectionFactory.CreateConnection();
@@ -627,7 +631,7 @@ public sealed class EmrRepository
         return connection;
     }
 
-    private static async Task EnsureClinicalRecordVitalsColumnsAsync(MySqlConnection connection)
+    private static async Task EnsureClinicalRecordVitalsColumnsAsync(NpgsqlConnection connection)
     {
         var changed = false;
         changed |= await AddColumnIfMissingAsync(connection, "clinical_records", "height_cm", "DECIMAL(6,2) NULL", "visit_date");
@@ -640,21 +644,22 @@ public sealed class EmrRepository
         {
             await ExecuteNonQueryAsync(connection, """
                 UPDATE clinical_records cr
-                INNER JOIN patients p ON p.id = cr.patient_id
-                SET cr.height_cm = p.height_cm,
-                    cr.weight_kg = p.weight_kg,
-                    cr.blood_pressure = p.blood_pressure,
-                    cr.fetal_heart_rate = p.fetal_heart_tone
+                SET height_cm = p.height_cm,
+                    weight_kg = p.weight_kg,
+                    blood_pressure = p.blood_pressure,
+                    fetal_heart_rate = p.fetal_heart_tone
+                FROM patients p
                 WHERE cr.height_cm IS NULL
                   AND cr.weight_kg IS NULL
-                  AND cr.blood_pressure = ''
-                  AND cr.fetal_heart_rate = '';
+                  AND blood_pressure = ''
+                  AND fetal_heart_rate = ''
+                  AND p.id = cr.patient_id;
                 """);
         }
     }
 
     private static async Task<bool> AddColumnIfMissingAsync(
-        MySqlConnection connection,
+        NpgsqlConnection connection,
         string table,
         string column,
         string definition,
@@ -665,26 +670,26 @@ public sealed class EmrRepository
             return false;
         }
 
-        await ExecuteNonQueryAsync(connection, $"ALTER TABLE `{table}` ADD COLUMN `{column}` {definition} AFTER `{afterColumn}`;");
+        await ExecuteNonQueryAsync(connection, $"ALTER TABLE {table} ADD COLUMN {column} {definition};");
         return true;
     }
 
-    private static async Task<int> ExecuteNonQueryAsync(MySqlConnection connection, MySqlTransaction transaction, string sql)
+    private static async Task<int> ExecuteNonQueryAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, string sql)
     {
-        await using var command = new MySqlCommand(sql, connection, transaction);
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
         return await command.ExecuteNonQueryAsync();
     }
 
-    private static async Task<int> ExecuteNonQueryAsync(MySqlConnection connection, string sql)
+    private static async Task<int> ExecuteNonQueryAsync(NpgsqlConnection connection, string sql)
     {
-        await using var command = new MySqlCommand(sql, connection);
+        await using var command = new NpgsqlCommand(sql, connection);
         return await command.ExecuteNonQueryAsync();
     }
 
-    private static async Task<bool> ColumnExistsAsync(MySqlConnection connection, string table, string column)
+    private static async Task<bool> ColumnExistsAsync(NpgsqlConnection connection, string table, string column)
     {
-        await using var command = new MySqlCommand(
-            "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = @table AND column_name = @column;",
+        await using var command = new NpgsqlCommand(
+            "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = @table AND column_name = @column;",
             connection);
         command.Parameters.AddWithValue("@table", table);
         command.Parameters.AddWithValue("@column", column);
@@ -692,8 +697,8 @@ public sealed class EmrRepository
     }
 
     private static async Task AddSyncQueueItemAsync(
-        MySqlConnection connection,
-        MySqlTransaction transaction,
+        NpgsqlConnection connection,
+        NpgsqlTransaction transaction,
         string entityType,
         int entityId,
         string operation)
@@ -703,14 +708,14 @@ public sealed class EmrRepository
             VALUES (@entityType, @entityId, @operation, 'Pending');
             """;
 
-        await using var command = new MySqlCommand(sql, connection, transaction);
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
         command.Parameters.AddWithValue("@entityType", entityType);
         command.Parameters.AddWithValue("@entityId", entityId);
         command.Parameters.AddWithValue("@operation", operation);
         await command.ExecuteNonQueryAsync();
     }
 
-    private static void AddPatientParameters(MySqlCommand command, PatientFormModel form)
+    private static void AddPatientParameters(NpgsqlCommand command, PatientFormModel form)
     {
         command.Parameters.AddWithValue("@fullName", form.FullName.Trim());
         command.Parameters.AddWithValue("@age", form.Age);
@@ -740,7 +745,7 @@ public sealed class EmrRepository
         command.Parameters.AddWithValue("@lastMenstrualPeriod", DbDate(form.LastMenstrualPeriod));
     }
 
-    private static void AddPatientParameters(MySqlCommand command, PatientEditFormModel form)
+    private static void AddPatientParameters(NpgsqlCommand command, PatientEditFormModel form)
     {
         command.Parameters.AddWithValue("@fullName", form.FullName.Trim());
         command.Parameters.AddWithValue("@age", form.Age);
@@ -770,7 +775,7 @@ public sealed class EmrRepository
         command.Parameters.AddWithValue("@lastMenstrualPeriod", DbDate(form.LastMenstrualPeriod));
     }
 
-    private static void AddClinicalRecordVitalsParameters(MySqlCommand command, RecordFormModel form)
+    private static void AddClinicalRecordVitalsParameters(NpgsqlCommand command, RecordFormModel form)
     {
         command.Parameters.AddWithValue("@heightCm", (object?)form.HeightCm ?? DBNull.Value);
         command.Parameters.AddWithValue("@weightKg", (object?)form.WeightKg ?? DBNull.Value);
@@ -779,7 +784,7 @@ public sealed class EmrRepository
         command.Parameters.AddWithValue("@temperatureC", (object?)form.TemperatureC ?? DBNull.Value);
     }
 
-    private static void AddClinicalRecordVitalsParameters(MySqlCommand command, CheckupEditFormModel form)
+    private static void AddClinicalRecordVitalsParameters(NpgsqlCommand command, CheckupEditFormModel form)
     {
         command.Parameters.AddWithValue("@heightCm", (object?)form.HeightCm ?? DBNull.Value);
         command.Parameters.AddWithValue("@weightKg", (object?)form.WeightKg ?? DBNull.Value);
@@ -802,7 +807,7 @@ public sealed class EmrRepository
                 : "Left";
     }
 
-    private static async Task<IReadOnlyList<Patient>> GetPatientsAsync(MySqlConnection connection)
+    private static async Task<IReadOnlyList<Patient>> GetPatientsAsync(NpgsqlConnection connection)
     {
         const string sql = """
             SELECT id, client_uid, patient_number, full_name, age, address, sex, civil_status, contact_number,
@@ -826,7 +831,7 @@ public sealed class EmrRepository
             """;
 
         var patients = new List<Patient>();
-        await using var command = new MySqlCommand(sql, connection);
+        await using var command = new NpgsqlCommand(sql, connection);
         await using var reader = await command.ExecuteReaderAsync();
 
         while (await reader.ReadAsync())
@@ -872,7 +877,7 @@ public sealed class EmrRepository
         return patients;
     }
 
-    private static async Task<IReadOnlyList<ClinicalRecord>> GetClinicalRecordsAsync(MySqlConnection connection)
+    private static async Task<IReadOnlyList<ClinicalRecord>> GetClinicalRecordsAsync(NpgsqlConnection connection)
     {
         const string sql = """
             SELECT r.id, r.client_uid, r.patient_id, p.full_name AS patient_name, p.address AS patient_address,
@@ -885,7 +890,7 @@ public sealed class EmrRepository
             """;
 
         var records = new List<ClinicalRecord>();
-        await using var command = new MySqlCommand(sql, connection);
+        await using var command = new NpgsqlCommand(sql, connection);
         await using var reader = await command.ExecuteReaderAsync();
 
         while (await reader.ReadAsync())
@@ -917,7 +922,7 @@ public sealed class EmrRepository
         return records;
     }
 
-    private static async Task<IReadOnlyList<LabResult>> GetLabResultsAsync(MySqlConnection connection)
+    private static async Task<IReadOnlyList<LabResult>> GetLabResultsAsync(NpgsqlConnection connection)
     {
         const string sql = """
             SELECT l.id, l.client_uid, l.patient_id, l.clinical_record_id, p.full_name AS patient_name,
@@ -930,7 +935,7 @@ public sealed class EmrRepository
             """;
 
         var labs = new List<LabResult>();
-        await using var command = new MySqlCommand(sql, connection);
+        await using var command = new NpgsqlCommand(sql, connection);
         await using var reader = await command.ExecuteReaderAsync();
 
         while (await reader.ReadAsync())
@@ -957,7 +962,7 @@ public sealed class EmrRepository
         return labs;
     }
 
-    private static async Task<IReadOnlyList<Prescription>> GetPrescriptionsAsync(MySqlConnection connection)
+    private static async Task<IReadOnlyList<Prescription>> GetPrescriptionsAsync(NpgsqlConnection connection)
     {
         const string sql = """
             SELECT pr.id, pr.client_uid, pr.patient_id, pr.clinical_record_id, p.full_name AS patient_name,
@@ -970,7 +975,7 @@ public sealed class EmrRepository
             """;
 
         var prescriptions = new List<Prescription>();
-        await using var command = new MySqlCommand(sql, connection);
+        await using var command = new NpgsqlCommand(sql, connection);
         {
             await using var reader = await command.ExecuteReaderAsync();
 
@@ -1002,7 +1007,7 @@ public sealed class EmrRepository
         return prescriptions;
     }
 
-    private static async Task LoadPrescriptionItemsAsync(MySqlConnection connection, IReadOnlyList<Prescription> prescriptions)
+    private static async Task LoadPrescriptionItemsAsync(NpgsqlConnection connection, IReadOnlyList<Prescription> prescriptions)
     {
         if (prescriptions.Count == 0)
         {
@@ -1018,7 +1023,7 @@ public sealed class EmrRepository
             """;
 
         var grouped = new Dictionary<int, List<PrescriptionItem>>();
-        await using var command = new MySqlCommand(sql, connection);
+        await using var command = new NpgsqlCommand(sql, connection);
         await using var reader = await command.ExecuteReaderAsync();
 
         while (await reader.ReadAsync())
@@ -1069,7 +1074,7 @@ public sealed class EmrRepository
         }
     }
 
-    private static async Task<PrintLayout> GetPrintLayoutAsync(MySqlConnection connection, string documentType)
+    private static async Task<PrintLayout> GetPrintLayoutAsync(NpgsqlConnection connection, string documentType)
     {
         var normalizedDocumentType = PrintLayout.NormalizeDocumentType(documentType);
 
@@ -1083,7 +1088,7 @@ public sealed class EmrRepository
             LIMIT 1;
             """;
 
-        await using var command = new MySqlCommand(sql, connection);
+        await using var command = new NpgsqlCommand(sql, connection);
         command.Parameters.AddWithValue("@documentType", normalizedDocumentType);
         command.Parameters.AddWithValue("@id", PrintLayout.LayoutId(normalizedDocumentType));
         await using var reader = await command.ExecuteReaderAsync();
@@ -1123,7 +1128,7 @@ public sealed class EmrRepository
         };
     }
 
-    private static async Task<IReadOnlyList<SyncItem>> GetSyncQueueAsync(MySqlConnection connection)
+    private static async Task<IReadOnlyList<SyncItem>> GetSyncQueueAsync(NpgsqlConnection connection)
     {
         const string sql = """
             SELECT id, entity_type, entity_id, operation, updated_at, synced_at, status
@@ -1133,7 +1138,7 @@ public sealed class EmrRepository
             """;
 
         var queue = new List<SyncItem>();
-        await using var command = new MySqlCommand(sql, connection);
+        await using var command = new NpgsqlCommand(sql, connection);
         await using var reader = await command.ExecuteReaderAsync();
 
         while (await reader.ReadAsync())
@@ -1153,10 +1158,10 @@ public sealed class EmrRepository
         return queue;
     }
 
-    private static async Task<string> GetLastSyncLabelAsync(MySqlConnection connection)
+    private static async Task<string> GetLastSyncLabelAsync(NpgsqlConnection connection)
     {
         const string sql = "SELECT MAX(synced_at) FROM sync_queue WHERE synced_at IS NOT NULL;";
-        await using var command = new MySqlCommand(sql, connection);
+        await using var command = new NpgsqlCommand(sql, connection);
         var result = await command.ExecuteScalarAsync();
         return result is DateTime syncedAt ? syncedAt.ToString("MMM d, h:mm tt") : "No cloud sync yet";
     }
@@ -1351,7 +1356,7 @@ public sealed class EmrRepository
         return new DashboardViewModel
         {
             DatabaseConfigured = includeDatabaseFlag,
-            DataNotice = includeDatabaseFlag ? null : "MySQL is not configured yet. Demo data is shown until ConnectionStrings:DefaultConnection points to your database.",
+            DataNotice = includeDatabaseFlag ? null : "PostgreSQL is not configured yet. Demo data is shown until ConnectionStrings:DefaultConnection points to your database.",
             Patients = patients,
             RecentRecords = records,
             LabResults = labs,
@@ -1426,3 +1431,6 @@ public sealed class EmrRepository
     }
 
 }
+
+
+

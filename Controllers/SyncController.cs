@@ -30,7 +30,7 @@ public sealed class SyncController : Controller
         {
             TempData["Error"] = ex is InvalidOperationException
                 ? ex.Message
-                : "Sync failed. Check the MySQL connection and schema.";
+                : "Sync failed. Check the PostgreSQL connection and schema.";
         }
 
         if (!string.IsNullOrWhiteSpace(returnUrl) && Url.IsLocalUrl(returnUrl))
@@ -54,7 +54,7 @@ public sealed class SyncController : Controller
         {
             TempData["Error"] = ex is InvalidOperationException
                 ? ex.Message
-                : "Record cleanup failed. Check the MySQL connection and schema.";
+                : "Record cleanup failed. Check the PostgreSQL connection and schema.";
         }
 
         if (!string.IsNullOrWhiteSpace(returnUrl) && Url.IsLocalUrl(returnUrl))
@@ -65,3 +65,4 @@ public sealed class SyncController : Controller
         return RedirectToAction(nameof(Index));
     }
 }
+

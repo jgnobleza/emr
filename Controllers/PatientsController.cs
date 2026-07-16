@@ -155,7 +155,8 @@ public sealed class PatientsController : Controller
     {
         return ex is InvalidOperationException
             ? ex.Message
-            : "Save failed. Check the MySQL connection and schema.";
+            : "Save failed. Check the PostgreSQL connection and schema.";
     }
 
 }
+

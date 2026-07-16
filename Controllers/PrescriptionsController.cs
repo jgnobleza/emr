@@ -126,7 +126,7 @@ public sealed class PrescriptionsController : Controller
     {
         return ex is InvalidOperationException
             ? ex.Message
-            : "Save failed. Check the MySQL connection and schema.";
+            : "Save failed. Check the PostgreSQL connection and schema.";
     }
 
     private string CurrentUserName()
@@ -136,3 +136,4 @@ public sealed class PrescriptionsController : Controller
             : "Doctor";
     }
 }
+

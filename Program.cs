@@ -1,6 +1,7 @@
 using medrec.Data;
 using medrec.Services;
 using Microsoft.AspNetCore.DataProtection;
+using Npgsql;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -21,7 +22,7 @@ if (OperatingSystem.IsWindows())
 {
     dataProtection.ProtectKeysWithDpapi();
 }
-builder.Services.AddSingleton<MySqlConnectionFactory>();
+builder.Services.AddSingleton<PostgresConnectionFactory>();
 builder.Services.AddScoped<EmrRepository>();
 builder.Services.AddSingleton<PasswordService>();
 builder.Services.AddScoped<AccountService>();
@@ -29,6 +30,8 @@ builder.Services.AddScoped<OfflineSyncService>();
 builder.Services.AddHostedService<DailySyncService>();
 
 var app = builder.Build();
+
+await EnsurePostgresSchemaAsync(app);
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
@@ -107,3 +110,33 @@ static bool IsPublicRequest(HttpContext context)
         || value.Equals("/favicon.ico", StringComparison.OrdinalIgnoreCase)
         || System.IO.Path.HasExtension(value);
 }
+
+static async Task EnsurePostgresSchemaAsync(WebApplication app)
+{
+    try
+    {
+        using var scope = app.Services.CreateScope();
+        var connections = scope.ServiceProvider.GetRequiredService<PostgresConnectionFactory>();
+        if (!connections.IsConfigured)
+        {
+            return;
+        }
+
+        var schemaPath = Path.Combine(app.Environment.ContentRootPath, "Database", "schema.sql");
+        if (!File.Exists(schemaPath))
+        {
+            app.Logger.LogWarning("PostgreSQL schema file was not found at {SchemaPath}.", schemaPath);
+            return;
+        }
+
+        await using var connection = connections.CreateConnection();
+        await connection.OpenAsync();
+        await using var command = new NpgsqlCommand(await File.ReadAllTextAsync(schemaPath), connection);
+        await command.ExecuteNonQueryAsync();
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogWarning(ex, "Unable to initialize the PostgreSQL schema. The app will continue and show demo data if live tables are unavailable.");
+    }
+}
+

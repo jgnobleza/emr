@@ -60,7 +60,7 @@ public sealed class AccountController : Controller
         }
         catch
         {
-            ModelState.AddModelError(string.Empty, "Login is unavailable. Check the MySQL connection and apply Database/schema.sql.");
+            ModelState.AddModelError(string.Empty, "Login is unavailable. Check the PostgreSQL connection and apply Database/schema.sql.");
             return View(model);
         }
 
@@ -85,3 +85,4 @@ public sealed class AccountController : Controller
         return RedirectToAction("Index", "Home");
     }
 }
+

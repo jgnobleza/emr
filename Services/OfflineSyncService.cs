@@ -1,20 +1,20 @@
 using System.Text.Json;
 using medrec.Data;
 using medrec.Models;
-using MySqlConnector;
+using Npgsql;
 
 namespace medrec.Services;
 
 public sealed class OfflineSyncService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-    private readonly MySqlConnectionFactory _connections;
+    private readonly PostgresConnectionFactory _connections;
     private readonly EmrRepository _repository;
     private readonly IWebHostEnvironment _environment;
     private readonly SemaphoreSlim _schemaGate = new(1, 1);
     private bool _schemaReady;
 
-    public OfflineSyncService(MySqlConnectionFactory connections, EmrRepository repository, IWebHostEnvironment environment)
+    public OfflineSyncService(PostgresConnectionFactory connections, EmrRepository repository, IWebHostEnvironment environment)
     {
         _connections = connections;
         _repository = repository;
@@ -34,14 +34,14 @@ public sealed class OfflineSyncService
             {
                 if (!await ColumnExistsAsync(connection, table, "client_uid"))
                 {
-                    await ExecuteAsync(connection, $"ALTER TABLE `{table}` ADD COLUMN client_uid CHAR(36) NULL AFTER id;");
-                    await ExecuteAsync(connection, $"UPDATE `{table}` SET client_uid = UUID() WHERE client_uid IS NULL OR client_uid = '';");
-                    await ExecuteAsync(connection, $"ALTER TABLE `{table}` MODIFY client_uid CHAR(36) NOT NULL;");
+                    await ExecuteAsync(connection, $"ALTER TABLE {table} ADD COLUMN client_uid CHAR(36) NULL;");
+                    await ExecuteAsync(connection, $"UPDATE {table} SET client_uid = gen_random_uuid()::text WHERE client_uid IS NULL OR client_uid = '';");
+                    await ExecuteAsync(connection, $"ALTER TABLE {table} ALTER COLUMN client_uid SET NOT NULL;");
                 }
 
                 if (!await IndexExistsAsync(connection, table, $"ux_{table}_client_uid"))
                 {
-                    await ExecuteAsync(connection, $"ALTER TABLE `{table}` ADD UNIQUE KEY `ux_{table}_client_uid` (client_uid);");
+                    await ExecuteAsync(connection, $"CREATE UNIQUE INDEX IF NOT EXISTS ux_{table}_client_uid ON {table} (client_uid);");
                 }
             }
 
@@ -56,15 +56,16 @@ public sealed class OfflineSyncService
             {
                 await ExecuteAsync(connection, """
                     UPDATE clinical_records cr
-                    INNER JOIN patients p ON p.id = cr.patient_id
-                    SET cr.height_cm = p.height_cm,
-                        cr.weight_kg = p.weight_kg,
-                        cr.blood_pressure = p.blood_pressure,
-                        cr.fetal_heart_rate = p.fetal_heart_tone
+                    SET height_cm = p.height_cm,
+                        weight_kg = p.weight_kg,
+                        blood_pressure = p.blood_pressure,
+                        fetal_heart_rate = p.fetal_heart_tone
+                    FROM patients p
                     WHERE cr.height_cm IS NULL
                       AND cr.weight_kg IS NULL
-                      AND cr.blood_pressure = ''
-                      AND cr.fetal_heart_rate = '';
+                      AND blood_pressure = ''
+                      AND fetal_heart_rate = ''
+                      AND p.id = cr.patient_id;
                     """);
             }
             _schemaReady = true;
@@ -120,7 +121,7 @@ public sealed class OfflineSyncService
         return result;
     }
 
-    private async Task<string?> UpsertPatientAsync(MySqlConnection connection, MySqlTransaction transaction, OfflineSyncOperation operation)
+    private async Task<string?> UpsertPatientAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, OfflineSyncOperation operation)
     {
         var patient = operation.Payload.Deserialize<Patient>(JsonOptions) ?? throw new InvalidOperationException("Patient payload is invalid.");
         patient.ClientUid = operation.EntityUid;
@@ -152,21 +153,21 @@ public sealed class OfflineSyncService
                @email, @partner, @partnerContact, @referred, @menarche, @menopause,
                @pmp, @cycle, @duration, @amount, @pattern, @active, @contraception, @height, @weight, @bp, @fht,
                @lmp, @photo, 'Synced', @archived)
-            ON DUPLICATE KEY UPDATE
-              full_name=VALUES(full_name), age=VALUES(age), address=VALUES(address), sex=VALUES(sex),
-              civil_status=VALUES(civil_status), contact_number=VALUES(contact_number), occupation=VALUES(occupation),
-              company=VALUES(company), email=VALUES(email), partner_name=VALUES(partner_name),
-              partner_contact_number=VALUES(partner_contact_number), referred_by=VALUES(referred_by),
-              age_of_menarche=VALUES(age_of_menarche), menopause_age=VALUES(menopause_age),
-              previous_menstrual_period=VALUES(previous_menstrual_period), period_cycle_days=VALUES(period_cycle_days),
-              period_duration_days=VALUES(period_duration_days), menstrual_amount=VALUES(menstrual_amount),
-              menstrual_pattern=VALUES(menstrual_pattern), sexually_active=VALUES(sexually_active),
-              contraception_method=VALUES(contraception_method), height_cm=VALUES(height_cm), weight_kg=VALUES(weight_kg),
-              blood_pressure=VALUES(blood_pressure), fetal_heart_tone=VALUES(fetal_heart_tone),
-              last_menstrual_period=VALUES(last_menstrual_period), photo_url=COALESCE(VALUES(photo_url), photo_url),
-              archived_at=VALUES(archived_at), sync_status='Synced', last_synced_at=CURRENT_TIMESTAMP;
+            ON CONFLICT (client_uid) DO UPDATE SET
+              full_name=EXCLUDED.full_name, age=EXCLUDED.age, address=EXCLUDED.address, sex=EXCLUDED.sex,
+              civil_status=EXCLUDED.civil_status, contact_number=EXCLUDED.contact_number, occupation=EXCLUDED.occupation,
+              company=EXCLUDED.company, email=EXCLUDED.email, partner_name=EXCLUDED.partner_name,
+              partner_contact_number=EXCLUDED.partner_contact_number, referred_by=EXCLUDED.referred_by,
+              age_of_menarche=EXCLUDED.age_of_menarche, menopause_age=EXCLUDED.menopause_age,
+              previous_menstrual_period=EXCLUDED.previous_menstrual_period, period_cycle_days=EXCLUDED.period_cycle_days,
+              period_duration_days=EXCLUDED.period_duration_days, menstrual_amount=EXCLUDED.menstrual_amount,
+              menstrual_pattern=EXCLUDED.menstrual_pattern, sexually_active=EXCLUDED.sexually_active,
+              contraception_method=EXCLUDED.contraception_method, height_cm=EXCLUDED.height_cm, weight_kg=EXCLUDED.weight_kg,
+              blood_pressure=EXCLUDED.blood_pressure, fetal_heart_tone=EXCLUDED.fetal_heart_tone,
+              last_menstrual_period=EXCLUDED.last_menstrual_period, photo_url=COALESCE(EXCLUDED.photo_url, patients.photo_url),
+              archived_at=EXCLUDED.archived_at, sync_status='Synced', last_synced_at=CURRENT_TIMESTAMP;
             """;
-        await using var command = new MySqlCommand(sql, connection, transaction);
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
         command.Parameters.AddWithValue("@uid", patient.ClientUid);
         command.Parameters.AddWithValue("@number", string.IsNullOrWhiteSpace(patient.PatientNumber) ? $"OFF-{DateTime.UtcNow:yyyyMMddHHmmssfff}" : patient.PatientNumber);
         command.Parameters.AddWithValue("@name", patient.FullName.Trim());
@@ -202,19 +203,19 @@ public sealed class OfflineSyncService
         return null;
     }
 
-    private static async Task<string?> ArchivePatientAsync(MySqlConnection connection, MySqlTransaction transaction, OfflineSyncOperation operation)
+    private static async Task<string?> ArchivePatientAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, OfflineSyncOperation operation)
     {
         var existing = await EntityStateAsync(connection, transaction, "patients", operation.EntityUid);
         if (existing is null) return "Patient no longer exists on the server.";
         if (HasConflict(existing, operation.BaseUpdatedAt)) return "The patient was changed on the server after this device's offline copy.";
-        await using var command = new MySqlCommand("UPDATE patients SET archived_at=CURRENT_TIMESTAMP, sync_status='Synced', last_synced_at=CURRENT_TIMESTAMP WHERE client_uid=@uid;", connection, transaction);
+        await using var command = new NpgsqlCommand("UPDATE patients SET archived_at=CURRENT_TIMESTAMP, sync_status='Synced', last_synced_at=CURRENT_TIMESTAMP WHERE client_uid=@uid;", connection, transaction);
         command.Parameters.AddWithValue("@uid", operation.EntityUid);
         await command.ExecuteNonQueryAsync();
         await QueueServerSyncAsync(connection, transaction, "Patient", existing.Value.Id, "Delete");
         return null;
     }
 
-    private static async Task<string?> UpsertRecordAsync(MySqlConnection connection, MySqlTransaction transaction, OfflineSyncOperation operation, AppUser user)
+    private static async Task<string?> UpsertRecordAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, OfflineSyncOperation operation, AppUser user)
     {
         var record = operation.Payload.Deserialize<OfflineRecordPayload>(JsonOptions) ?? throw new InvalidOperationException("Checkup payload is invalid.");
         var patientId = await EntityIdAsync(connection, transaction, "patients", record.PatientClientUid);
@@ -226,13 +227,13 @@ public sealed class OfflineSyncService
                chief_complaint, diagnosis, notes, doctor_name, sync_status, last_synced_at)
             VALUES (@uid, @patientId, @doctorId, @visitDate, @height, @weight, @bp, @fhr, @temperature,
                     @complaint, @diagnosis, @notes, @doctorName, 'Synced', CURRENT_TIMESTAMP)
-            ON DUPLICATE KEY UPDATE visit_date=VALUES(visit_date), chief_complaint=VALUES(chief_complaint),
-              height_cm=VALUES(height_cm), weight_kg=VALUES(weight_kg), blood_pressure=VALUES(blood_pressure),
-              fetal_heart_rate=VALUES(fetal_heart_rate), temperature_c=VALUES(temperature_c),
-              diagnosis=VALUES(diagnosis), notes=VALUES(notes), doctor_id=VALUES(doctor_id), doctor_name=VALUES(doctor_name),
+            ON CONFLICT (client_uid) DO UPDATE SET visit_date=EXCLUDED.visit_date, chief_complaint=EXCLUDED.chief_complaint,
+              height_cm=EXCLUDED.height_cm, weight_kg=EXCLUDED.weight_kg, blood_pressure=EXCLUDED.blood_pressure,
+              fetal_heart_rate=EXCLUDED.fetal_heart_rate, temperature_c=EXCLUDED.temperature_c,
+              diagnosis=EXCLUDED.diagnosis, notes=EXCLUDED.notes, doctor_id=EXCLUDED.doctor_id, doctor_name=EXCLUDED.doctor_name,
               sync_status='Synced', last_synced_at=CURRENT_TIMESTAMP;
             """;
-        await using var command = new MySqlCommand(sql, connection, transaction);
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
         command.Parameters.AddWithValue("@uid", operation.EntityUid);
         command.Parameters.AddWithValue("@patientId", patientId);
         command.Parameters.AddWithValue("@doctorId", user.Id);
@@ -251,7 +252,7 @@ public sealed class OfflineSyncService
         return null;
     }
 
-    private async Task<string?> UpsertLabAsync(MySqlConnection connection, MySqlTransaction transaction, OfflineSyncOperation operation)
+    private async Task<string?> UpsertLabAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, OfflineSyncOperation operation)
     {
         var lab = operation.Payload.Deserialize<OfflineLabPayload>(JsonOptions) ?? throw new InvalidOperationException("Lab payload is invalid.");
         var patientId = await EntityIdAsync(connection, transaction, "patients", lab.PatientClientUid);
@@ -279,11 +280,11 @@ public sealed class OfflineSyncService
             INSERT INTO lab_results
               (client_uid, patient_id, clinical_record_id, test_name, requested_date, result_date, status, file_url, notes, sync_status)
             VALUES (@uid,@patientId,@recordId,@testName,@requestedDate,@resultDate,@status,@fileUrl,@notes,'Synced')
-            ON DUPLICATE KEY UPDATE clinical_record_id=VALUES(clinical_record_id), test_name=VALUES(test_name),
-              requested_date=VALUES(requested_date), result_date=VALUES(result_date), status=VALUES(status),
-              file_url=VALUES(file_url), notes=VALUES(notes), sync_status='Synced';
+            ON CONFLICT (client_uid) DO UPDATE SET clinical_record_id=EXCLUDED.clinical_record_id, test_name=EXCLUDED.test_name,
+              requested_date=EXCLUDED.requested_date, result_date=EXCLUDED.result_date, status=EXCLUDED.status,
+              file_url=EXCLUDED.file_url, notes=EXCLUDED.notes, sync_status='Synced';
             """;
-        await using var command = new MySqlCommand(sql, connection, transaction);
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
         command.Parameters.AddWithValue("@uid", operation.EntityUid);
         command.Parameters.AddWithValue("@patientId", patientId);
         command.Parameters.AddWithValue("@recordId", (object?)recordId ?? DBNull.Value);
@@ -298,7 +299,7 @@ public sealed class OfflineSyncService
         return null;
     }
 
-    private async Task<string?> UpsertProfileAsync(MySqlConnection connection, MySqlTransaction transaction, OfflineSyncOperation operation, AppUser user)
+    private async Task<string?> UpsertProfileAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, OfflineSyncOperation operation, AppUser user)
     {
         var profile = operation.Payload.Deserialize<OfflineProfilePayload>(JsonOptions) ?? throw new InvalidOperationException("Doctor profile payload is invalid.");
         if (string.IsNullOrWhiteSpace(profile.FullName)) throw new InvalidOperationException("Doctor name is required.");
@@ -316,7 +317,7 @@ public sealed class OfflineSyncService
             await File.WriteAllBytesAsync(Path.Combine(uploadRoot, fileName), bytes);
             signatureUrl = $"/uploads/signatures/{fileName}";
         }
-        await using var command = new MySqlCommand("UPDATE users SET full_name=@name, specialty=@specialty, license_number=@license, contact_number=@contact, signature_url=@signature WHERE id=@id AND is_active=TRUE;", connection, transaction);
+        await using var command = new NpgsqlCommand("UPDATE users SET full_name=@name, specialty=@specialty, license_number=@license, contact_number=@contact, signature_url=@signature WHERE id=@id AND is_active=TRUE;", connection, transaction);
         command.Parameters.AddWithValue("@id", user.Id);
         command.Parameters.AddWithValue("@name", profile.FullName.Trim());
         command.Parameters.AddWithValue("@specialty", profile.Specialty?.Trim() ?? "");
@@ -343,7 +344,7 @@ public sealed class OfflineSyncService
         return SignatureExtension(bytes);
     }
 
-    private static async Task<string?> UpsertPrescriptionAsync(MySqlConnection connection, MySqlTransaction transaction, OfflineSyncOperation operation, AppUser user)
+    private static async Task<string?> UpsertPrescriptionAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, OfflineSyncOperation operation, AppUser user)
     {
         var prescription = operation.Payload.Deserialize<OfflinePrescriptionPayload>(JsonOptions) ?? throw new InvalidOperationException("Prescription payload is invalid.");
         if (prescription.Items.Count == 0) throw new InvalidOperationException("Prescription requires at least one medication.");
@@ -356,11 +357,11 @@ public sealed class OfflineSyncService
             INSERT INTO prescriptions
               (client_uid, patient_id, clinical_record_id, issued_at, medication, dosage, frequency, duration, instructions, prescriber, sync_status)
             VALUES (@uid, @patientId, @recordId, @issuedAt, @medication, @dosage, @frequency, @duration, @instructions, @prescriber, 'Synced')
-            ON DUPLICATE KEY UPDATE clinical_record_id=VALUES(clinical_record_id), issued_at=VALUES(issued_at),
-              medication=VALUES(medication), dosage=VALUES(dosage), frequency=VALUES(frequency), duration=VALUES(duration),
-              instructions=VALUES(instructions), prescriber=VALUES(prescriber), sync_status='Synced';
+            ON CONFLICT (client_uid) DO UPDATE SET clinical_record_id=EXCLUDED.clinical_record_id, issued_at=EXCLUDED.issued_at,
+              medication=EXCLUDED.medication, dosage=EXCLUDED.dosage, frequency=EXCLUDED.frequency, duration=EXCLUDED.duration,
+              instructions=EXCLUDED.instructions, prescriber=EXCLUDED.prescriber, sync_status='Synced';
             """;
-        await using var command = new MySqlCommand(sql, connection, transaction);
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
         command.Parameters.AddWithValue("@uid", operation.EntityUid);
         command.Parameters.AddWithValue("@patientId", patientId);
         command.Parameters.AddWithValue("@recordId", (object?)recordId ?? DBNull.Value);
@@ -373,7 +374,7 @@ public sealed class OfflineSyncService
         command.Parameters.AddWithValue("@prescriber", user.FullName);
         await command.ExecuteNonQueryAsync();
         var prescriptionId = await EntityIdAsync(connection, transaction, "prescriptions", operation.EntityUid);
-        await using (var delete = new MySqlCommand("DELETE FROM prescription_items WHERE prescription_id=@id;", connection, transaction))
+        await using (var delete = new NpgsqlCommand("DELETE FROM prescription_items WHERE prescription_id=@id;", connection, transaction))
         {
             delete.Parameters.AddWithValue("@id", prescriptionId);
             await delete.ExecuteNonQueryAsync();
@@ -381,7 +382,7 @@ public sealed class OfflineSyncService
         for (var i = 0; i < prescription.Items.Count; i++)
         {
             var item = prescription.Items[i];
-            await using var insert = new MySqlCommand("INSERT INTO prescription_items (prescription_id, medication, dosage, frequency, duration, sort_order) VALUES (@id,@med,@dose,@freq,@duration,@sort);", connection, transaction);
+            await using var insert = new NpgsqlCommand("INSERT INTO prescription_items (prescription_id, medication, dosage, frequency, duration, sort_order) VALUES (@id,@med,@dose,@freq,@duration,@sort);", connection, transaction);
             insert.Parameters.AddWithValue("@id", prescriptionId);
             insert.Parameters.AddWithValue("@med", item.Medication);
             insert.Parameters.AddWithValue("@dose", item.Dosage);
@@ -397,24 +398,24 @@ public sealed class OfflineSyncService
     private static bool HasConflict((int Id, DateTime UpdatedAt)? existing, DateTime? baseUpdatedAt) =>
         existing.HasValue && baseUpdatedAt.HasValue && existing.Value.UpdatedAt.ToUniversalTime() > baseUpdatedAt.Value.ToUniversalTime().AddSeconds(1);
 
-    private static async Task<(int Id, DateTime UpdatedAt)?> EntityStateAsync(MySqlConnection connection, MySqlTransaction transaction, string table, string uid)
+    private static async Task<(int Id, DateTime UpdatedAt)?> EntityStateAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, string table, string uid)
     {
-        await using var command = new MySqlCommand($"SELECT id, updated_at FROM `{table}` WHERE client_uid=@uid LIMIT 1;", connection, transaction);
+        await using var command = new NpgsqlCommand($"SELECT id, updated_at FROM {table} WHERE client_uid=@uid LIMIT 1;", connection, transaction);
         command.Parameters.AddWithValue("@uid", uid);
         await using var reader = await command.ExecuteReaderAsync();
         return await reader.ReadAsync() ? (reader.GetInt32("id"), reader.GetDateTime("updated_at")) : null;
     }
 
-    private static async Task<int> EntityIdAsync(MySqlConnection connection, MySqlTransaction transaction, string table, string uid)
+    private static async Task<int> EntityIdAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, string table, string uid)
     {
-        await using var command = new MySqlCommand($"SELECT id FROM `{table}` WHERE client_uid=@uid LIMIT 1;", connection, transaction);
+        await using var command = new NpgsqlCommand($"SELECT id FROM {table} WHERE client_uid=@uid LIMIT 1;", connection, transaction);
         command.Parameters.AddWithValue("@uid", uid);
         return Convert.ToInt32(await command.ExecuteScalarAsync() ?? throw new InvalidOperationException("A related offline record could not be resolved."));
     }
 
-    private static async Task QueueServerSyncAsync(MySqlConnection connection, MySqlTransaction transaction, string type, int id, string operation)
+    private static async Task QueueServerSyncAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, string type, int id, string operation)
     {
-        await using var command = new MySqlCommand("INSERT INTO sync_queue (entity_type, entity_id, operation, status) VALUES (@type,@id,@operation,'Synced');", connection, transaction);
+        await using var command = new NpgsqlCommand("INSERT INTO sync_queue (entity_type, entity_id, operation, status) VALUES (@type,@id,@operation,'Synced');", connection, transaction);
         command.Parameters.AddWithValue("@type", type);
         command.Parameters.AddWithValue("@id", id);
         command.Parameters.AddWithValue("@operation", operation);
@@ -423,24 +424,24 @@ public sealed class OfflineSyncService
 
     private static object DbDate(DateOnly? value) => value.HasValue ? value.Value.ToDateTime(TimeOnly.MinValue) : DBNull.Value;
 
-    private static async Task<bool> ColumnExistsAsync(MySqlConnection connection, string table, string column)
+    private static async Task<bool> ColumnExistsAsync(NpgsqlConnection connection, string table, string column)
     {
-        await using var command = new MySqlCommand("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=@table AND column_name=@column;", connection);
+        await using var command = new NpgsqlCommand("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = current_schema() AND table_name=@table AND column_name=@column;", connection);
         command.Parameters.AddWithValue("@table", table);
         command.Parameters.AddWithValue("@column", column);
         return Convert.ToInt32(await command.ExecuteScalarAsync()) > 0;
     }
 
-    private static async Task<bool> IndexExistsAsync(MySqlConnection connection, string table, string index)
+    private static async Task<bool> IndexExistsAsync(NpgsqlConnection connection, string table, string index)
     {
-        await using var command = new MySqlCommand("SELECT COUNT(*) FROM information_schema.statistics WHERE table_schema=DATABASE() AND table_name=@table AND index_name=@index;", connection);
+        await using var command = new NpgsqlCommand("SELECT COUNT(*) FROM pg_indexes WHERE schemaname = current_schema() AND tablename=@table AND indexname=@index;", connection);
         command.Parameters.AddWithValue("@table", table);
         command.Parameters.AddWithValue("@index", index);
         return Convert.ToInt32(await command.ExecuteScalarAsync()) > 0;
     }
 
     private static async Task<bool> AddColumnIfMissingAsync(
-        MySqlConnection connection,
+        NpgsqlConnection connection,
         string table,
         string column,
         string definition,
@@ -451,13 +452,16 @@ public sealed class OfflineSyncService
             return false;
         }
 
-        await ExecuteAsync(connection, $"ALTER TABLE `{table}` ADD COLUMN `{column}` {definition} AFTER `{afterColumn}`;");
+        await ExecuteAsync(connection, $"ALTER TABLE {table} ADD COLUMN {column} {definition};");
         return true;
     }
 
-    private static async Task ExecuteAsync(MySqlConnection connection, string sql)
+    private static async Task ExecuteAsync(NpgsqlConnection connection, string sql)
     {
-        await using var command = new MySqlCommand(sql, connection);
+        await using var command = new NpgsqlCommand(sql, connection);
         await command.ExecuteNonQueryAsync();
     }
 }
+
+
+
