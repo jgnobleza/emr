@@ -422,7 +422,7 @@ public sealed class OfflineSyncService
         await command.ExecuteNonQueryAsync();
     }
 
-    private static object DbDate(DateOnly? value) => value.HasValue ? value.Value.ToDateTime(TimeOnly.MinValue) : DBNull.Value;
+    private static object DbDate(DateOnly? value) => value.HasValue ? value.Value : DBNull.Value;
 
     private static async Task<bool> ColumnExistsAsync(NpgsqlConnection connection, string table, string column)
     {

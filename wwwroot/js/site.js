@@ -65,6 +65,7 @@
   const connectionStatus = document.getElementById("connectionStatus");
   const localQueueKey = "medrec.localPostQueue";
   const legacyQueueKey = "medrec.offlineQueue";
+  const pendingCheckupsKey = "medrec.pendingCheckups";
   let serverReachable = navigator.onLine;
 
   function setConnectionState() {
@@ -1764,6 +1765,8 @@
       event.preventDefault();
       const formData = new FormData(form);
       const hasFile = Array.from(form.querySelectorAll("input[type='file']")).some((input) => input.files.length > 0);
+      const pendingCheckup = buildPendingCheckup(form);
+      const pendingCheckupUpdate = buildPendingCheckupUpdate(form);
 
       const fields = Array.from(formData.entries())
         .filter(([name, value]) => typeof value === "string" && name !== "__RequestVerificationToken")
@@ -1772,6 +1775,13 @@
       try {
         if (window.medrecOfflineStore && typeof window.medrecOfflineStore.enqueuePost === "function") {
           await window.medrecOfflineStore.enqueuePost(form);
+          if (pendingCheckup) {
+            savePendingCheckup(pendingCheckup);
+            renderPendingCheckups();
+            showPendingCheckup(pendingCheckup);
+          } else if (pendingCheckupUpdate) {
+            applyPendingCheckupUpdate(pendingCheckupUpdate);
+          }
           showLocalFlash(hasFile
             ? "Saved locally with its file. It will upload when the connection returns."
             : "Saved locally on this browser. It will send when the connection returns.");
@@ -1785,6 +1795,13 @@
         }
 
         enqueueLocalPostItem({ action: form.action, method: form.method || "POST", fields });
+        if (pendingCheckup) {
+          savePendingCheckup(pendingCheckup);
+          renderPendingCheckups();
+          showPendingCheckup(pendingCheckup);
+        } else if (pendingCheckupUpdate) {
+          applyPendingCheckupUpdate(pendingCheckupUpdate);
+        }
         showLocalFlash("Saved locally on this browser. It will send when the connection returns.");
         form.reset();
       } catch (error) {
@@ -1795,6 +1812,12 @@
 
   window.addEventListener("online", replayLocalPostQueue);
   window.addEventListener("online", () => window.medrecOfflineStore?.replayPostQueue?.());
+  document.addEventListener("medrec:offline-queue-replayed", (event) => {
+    if ((event.detail?.remaining || 0) === 0 && (event.detail?.sent || 0) > 0) {
+      clearPendingCheckups();
+    }
+  });
+  renderPendingCheckups();
 
   function antiForgeryToken() {
     return document.querySelector('input[name="__RequestVerificationToken"]')?.value || "";
@@ -1855,6 +1878,7 @@
     if (!Array.isArray(queue) || queue.length === 0) return;
 
     const remaining = [];
+    let sent = 0;
     for (const item of queue) {
       try {
         const body = new URLSearchParams();
@@ -1870,13 +1894,20 @@
 
         const loginRedirect = response.url.includes("/Account/Login");
         const accepted = response.status === 204 || (response.ok && response.redirected && !loginRedirect);
-        if (!accepted) remaining.push(item);
+        if (accepted) {
+          sent += 1;
+        } else {
+          remaining.push(item);
+        }
       } catch {
         remaining.push(item);
       }
     }
 
     writeLocalPostQueue(remaining);
+    if (sent > 0 && remaining.length === 0) {
+      clearPendingCheckups();
+    }
     showLocalFlash(remaining.length === 0
       ? "Locally saved changes were sent."
       : "Some locally saved changes are still waiting for connection.");
@@ -1898,6 +1929,239 @@
     }
 
     localStorage.setItem(localQueueKey, JSON.stringify(queue));
+  }
+
+  function buildPendingCheckup(form) {
+    if (!isPath(form.action, "/Records/Create")) {
+      return null;
+    }
+
+    const patientId = fieldValue(form, "NewRecord.PatientId");
+    const visitDate = fieldValue(form, "NewRecord.VisitDate");
+    const chiefComplaint = fieldValue(form, "NewRecord.ChiefComplaint");
+    if (!patientId || !visitDate || !chiefComplaint) {
+      return null;
+    }
+
+    const patientSelect = form.querySelector('[name="NewRecord.PatientId"]');
+    const selectedPatient = patientSelect?.selectedOptions?.[0];
+
+    return {
+      localId: crypto.randomUUID ? crypto.randomUUID() : `local-${Date.now()}-${Math.random()}`,
+      patientId,
+      patientName: selectedPatient?.textContent?.trim() || "",
+      visitDate,
+      chiefComplaint,
+      diagnosis: "",
+      notes: "",
+      doctorName: "",
+      heightCm: fieldValue(form, "NewRecord.HeightCm"),
+      weightKg: fieldValue(form, "NewRecord.WeightKg"),
+      bloodPressure: fieldValue(form, "NewRecord.BloodPressure"),
+      fetalHeartRate: fieldValue(form, "NewRecord.FetalHeartRate"),
+      temperatureC: fieldValue(form, "NewRecord.TemperatureC"),
+      createdAtUtc: new Date().toISOString()
+    };
+  }
+
+  function buildPendingCheckupUpdate(form) {
+    if (!isPath(form.action, "/Records/UpdateCheckup")) {
+      return null;
+    }
+
+    const recordId = fieldValue(form, "CheckupEdit.RecordId");
+    if (!recordId) {
+      return null;
+    }
+
+    return {
+      recordId,
+      chiefComplaint: fieldValue(form, "CheckupEdit.ChiefComplaint"),
+      heightCm: fieldValue(form, "CheckupEdit.HeightCm"),
+      weightKg: fieldValue(form, "CheckupEdit.WeightKg"),
+      bloodPressure: fieldValue(form, "CheckupEdit.BloodPressure"),
+      fetalHeartRate: fieldValue(form, "CheckupEdit.FetalHeartRate"),
+      temperatureC: fieldValue(form, "CheckupEdit.TemperatureC")
+    };
+  }
+
+  function isPath(action, path) {
+    try {
+      return new URL(action, window.location.origin).pathname === path;
+    } catch {
+      return false;
+    }
+  }
+
+  function fieldValue(root, name) {
+    return root.querySelector(`[name="${name}"]`)?.value?.trim() || "";
+  }
+
+  function readPendingCheckups() {
+    try {
+      const items = JSON.parse(localStorage.getItem(pendingCheckupsKey) || "[]");
+      return Array.isArray(items) ? items : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function writePendingCheckups(items) {
+    if (!items.length) {
+      localStorage.removeItem(pendingCheckupsKey);
+      return;
+    }
+
+    localStorage.setItem(pendingCheckupsKey, JSON.stringify(items));
+  }
+
+  function savePendingCheckup(record) {
+    const items = readPendingCheckups().filter((item) => item.localId !== record.localId);
+    items.push(record);
+    writePendingCheckups(items);
+  }
+
+  function clearPendingCheckups() {
+    localStorage.removeItem(pendingCheckupsKey);
+    document.querySelectorAll("[data-local-checkup-id]").forEach((item) => item.remove());
+  }
+
+  function currentRecordsPatientId() {
+    const selectedFromForm = document.querySelector('[name="NewRecord.PatientId"]')?.value;
+    if (selectedFromForm) {
+      return selectedFromForm;
+    }
+
+    return new URLSearchParams(window.location.search).get("patientId") || "";
+  }
+
+  function renderPendingCheckups() {
+    const tabList = document.querySelector(".checkup-tabs");
+    if (!tabList) {
+      return;
+    }
+
+    document.querySelectorAll("[data-local-checkup-id]").forEach((item) => item.remove());
+    const patientId = currentRecordsPatientId();
+    const records = readPendingCheckups()
+      .filter((record) => !patientId || String(record.patientId) === String(patientId))
+      .sort((left, right) => new Date(right.visitDate) - new Date(left.visitDate));
+
+    records.forEach((record) => {
+      const tab = document.createElement("a");
+      tab.className = "checkup-tab";
+      tab.href = "#";
+      tab.dataset.localCheckupId = record.localId;
+
+      const date = document.createElement("strong");
+      date.textContent = formatCheckupDate(record.visitDate);
+      const complaint = document.createElement("span");
+      complaint.textContent = record.chiefComplaint || "Pending checkup";
+      const status = document.createElement("small");
+      status.textContent = "Waiting to sync";
+
+      tab.append(date, complaint, status);
+      tab.addEventListener("click", (event) => {
+        event.preventDefault();
+        showPendingCheckup(record);
+      });
+      tabList.prepend(tab);
+    });
+  }
+
+  function showPendingCheckup(record) {
+    document.querySelectorAll(".checkup-tab").forEach((item) => item.classList.remove("active"));
+    document.querySelector(`[data-local-checkup-id="${cssEscape(record.localId)}"]`)?.classList.add("active");
+
+    const pane = document.querySelector(".viewer-pane");
+    if (!pane) {
+      return;
+    }
+
+    pane.innerHTML = `
+      <div class="viewer-pane-header">
+        <div>
+          <span class="section-label">Complaint</span>
+          <h2>${escapeHtml(record.chiefComplaint || "Pending checkup")}</h2>
+        </div>
+        <span class="status pending">Pending</span>
+      </div>
+      <dl class="clinical-summary">
+        <div><dt>Height</dt><dd>${decimalLabel(record.heightCm, "cm")}</dd></div>
+        <div><dt>Weight</dt><dd>${decimalLabel(record.weightKg, "kg")}</dd></div>
+        <div><dt>BP</dt><dd>${escapeHtml(textLabel(record.bloodPressure))}</dd></div>
+        <div><dt>Fetal heart rate</dt><dd>${escapeHtml(textLabel(record.fetalHeartRate))}</dd></div>
+        <div><dt>Age of Gestation</dt><dd>-</dd></div>
+        <div><dt>Estimated Due Date</dt><dd>-</dd></div>
+        <div><dt>Temperature</dt><dd>${decimalLabel(record.temperatureC, "C")}</dd></div>
+      </dl>
+      <div class="system-alert">This checkup is saved on this device and will appear as a normal checkup after sync.</div>
+    `;
+
+    window.bootstrap?.Modal.getInstance(document.getElementById("recordModal"))?.hide();
+  }
+
+  function applyPendingCheckupUpdate(update) {
+    const activeTab = document.querySelector(".checkup-tab.active");
+    if (activeTab) {
+      const complaint = activeTab.querySelector("span");
+      if (complaint) complaint.textContent = update.chiefComplaint || "Pending checkup";
+    }
+
+    const header = document.querySelector(".viewer-pane .viewer-pane-header h2");
+    if (header) {
+      header.textContent = update.chiefComplaint || "Pending checkup";
+    }
+
+    const values = document.querySelectorAll(".viewer-pane .clinical-summary dd");
+    if (values.length >= 7) {
+      values[0].textContent = decimalLabel(update.heightCm, "cm");
+      values[1].textContent = decimalLabel(update.weightKg, "kg");
+      values[2].textContent = textLabel(update.bloodPressure);
+      values[3].textContent = textLabel(update.fetalHeartRate);
+      values[6].textContent = decimalLabel(update.temperatureC, "C");
+    }
+
+    window.bootstrap?.Modal.getInstance(document.getElementById("checkupEditModal"))?.hide();
+  }
+
+  function formatCheckupDate(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return "Pending";
+    }
+
+    return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  }
+
+  function decimalLabel(value, unit) {
+    if (!value) {
+      return "-";
+    }
+
+    const number = Number(value);
+    return Number.isFinite(number) ? `${number.toLocaleString(undefined, { maximumFractionDigits: 2 })} ${unit}` : "-";
+  }
+
+  function textLabel(value) {
+    return value || "-";
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  function cssEscape(value) {
+    if (window.CSS?.escape) {
+      return CSS.escape(value);
+    }
+
+    return String(value).replaceAll('"', '\\"');
   }
 
   function showLocalFlash(message, type = "success") {
