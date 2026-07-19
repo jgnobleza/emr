@@ -2273,12 +2273,25 @@
   }
 
   function currentRecordsPatientId() {
-    const selectedFromForm = document.querySelector('[name="NewRecord.PatientId"]')?.value;
-    if (selectedFromForm) {
-      return selectedFromForm;
+    const fromQuery = new URLSearchParams(window.location.search).get("patientId");
+    if (fromQuery) {
+      return fromQuery;
     }
 
-    return new URLSearchParams(window.location.search).get("patientId") || "";
+    const activeCheckupUrl = document.querySelector(".checkup-tab.active")?.getAttribute("href") || "";
+    if (activeCheckupUrl) {
+      try {
+        const activeUrl = new URL(activeCheckupUrl, window.location.origin);
+        const activePatientId = activeUrl.searchParams.get("patientId");
+        if (activePatientId) {
+          return activePatientId;
+        }
+      } catch {
+        // Fall through to the form value.
+      }
+    }
+
+    return document.querySelector('[name="NewRecord.PatientId"]')?.value || "";
   }
 
   function renderPendingCheckups() {
