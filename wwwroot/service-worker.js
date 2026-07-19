@@ -1,5 +1,5 @@
-const CACHE_NAME = "medrec-offline-v10";
-const RUNTIME_CACHE = "medrec-runtime-v10";
+const CACHE_NAME = "medrec-offline-v11";
+const RUNTIME_CACHE = "medrec-runtime-v11";
 const CORE_ASSETS = [
   "/Account/Login",
   "/Account/Login?returnUrl=%2F",
@@ -134,7 +134,7 @@ async function navigateNetworkFirst(request) {
       return response;
     });
   } catch {
-    const cachedPage = await caches.match(request, { ignoreSearch: true });
+    const cachedPage = await caches.match(request);
     if (cachedPage) return cachedPage;
 
     const url = new URL(request.url);
@@ -143,7 +143,9 @@ async function navigateNetworkFirst(request) {
       if (cachedRoot) return cachedRoot;
     }
 
-    const cachedPath = await caches.match(url.pathname, { ignoreSearch: true });
+    const cachedPath = url.search
+      ? null
+      : await caches.match(url.pathname);
     if (cachedPath) return cachedPath;
 
     const cachedHome = await caches.match("/");
