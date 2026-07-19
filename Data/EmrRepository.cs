@@ -795,7 +795,7 @@ public sealed class EmrRepository
 
     private static object DbDate(DateOnly? value)
     {
-        return value.HasValue ? value.Value.ToString("yyyy-MM-dd") : DBNull.Value;
+        return value.HasValue ? value.Value.ToDateTime(TimeOnly.MinValue) : DBNull.Value;
     }
 
     private static string NormalizeLayoutOption(string value)
