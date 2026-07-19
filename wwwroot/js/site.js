@@ -1815,6 +1815,7 @@
   document.addEventListener("medrec:offline-queue-replayed", (event) => {
     if ((event.detail?.remaining || 0) === 0 && (event.detail?.sent || 0) > 0) {
       clearPendingCheckups();
+      reloadRecordsPageAfterSync();
     }
   });
   renderPendingCheckups();
@@ -1907,6 +1908,7 @@
     writeLocalPostQueue(remaining);
     if (sent > 0 && remaining.length === 0) {
       clearPendingCheckups();
+      reloadRecordsPageAfterSync();
     }
     showLocalFlash(remaining.length === 0
       ? "Locally saved changes were sent."
@@ -2026,6 +2028,12 @@
     document.querySelectorAll("[data-local-checkup-id]").forEach((item) => item.remove());
   }
 
+  function reloadRecordsPageAfterSync() {
+    if (window.location.pathname === "/Records") {
+      window.location.reload();
+    }
+  }
+
   function currentRecordsPatientId() {
     const selectedFromForm = document.querySelector('[name="NewRecord.PatientId"]')?.value;
     if (selectedFromForm) {
@@ -2095,10 +2103,46 @@
         <div><dt>Estimated Due Date</dt><dd>-</dd></div>
         <div><dt>Temperature</dt><dd>${decimalLabel(record.temperatureC, "C")}</dd></div>
       </dl>
-      <div class="system-alert">This checkup is saved on this device and will appear as a normal checkup after sync.</div>
+      <form class="diagnosis-form" data-local-checkup-diagnosis-form data-local-checkup-id="${escapeHtml(record.localId)}">
+        <div>
+          <label for="LocalDiagnosis" class="form-label">Diagnosis</label>
+          <textarea id="LocalDiagnosis" name="Diagnosis" class="form-control diagnosis-textarea" rows="5">${escapeHtml(record.diagnosis || "")}</textarea>
+        </div>
+        <div>
+          <label for="LocalNotes" class="form-label">Notes</label>
+          <textarea id="LocalNotes" name="Notes" class="form-control diagnosis-textarea" rows="5">${escapeHtml(record.notes || "")}</textarea>
+        </div>
+        <div class="form-actions">
+          <button class="btn btn-primary btn-compact" type="submit">Save diagnosis</button>
+        </div>
+      </form>
+      <div class="system-alert">This checkup is saved on this device and will sync when the connection returns.</div>
     `;
+    bindLocalCheckupDiagnosisForm(pane);
 
     window.bootstrap?.Modal.getInstance(document.getElementById("recordModal"))?.hide();
+  }
+
+  function bindLocalCheckupDiagnosisForm(root) {
+    const form = root.querySelector("[data-local-checkup-diagnosis-form]");
+    if (!form) {
+      return;
+    }
+
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const localId = form.dataset.localCheckupId;
+      const items = readPendingCheckups();
+      const record = items.find((item) => item.localId === localId);
+      if (!record) {
+        return;
+      }
+
+      record.diagnosis = fieldValue(form, "Diagnosis");
+      record.notes = fieldValue(form, "Notes");
+      writePendingCheckups(items);
+      showLocalFlash("Diagnosis saved on this device.");
+    });
   }
 
   function applyPendingCheckupUpdate(update) {
