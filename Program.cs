@@ -3,6 +3,8 @@ using medrec.Services;
 using Microsoft.AspNetCore.DataProtection;
 using Npgsql;
 
+Environment.SetEnvironmentVariable("DOTNET_HOSTBUILDER__RELOADCONFIGONCHANGE", "false");
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
