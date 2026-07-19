@@ -9,6 +9,9 @@ wwwroot/uploads/
 *.log
 *.run.log
 *.run.err.log
+.env
+.env.*
+!.env.example
 
 .vs/
 .vscode/

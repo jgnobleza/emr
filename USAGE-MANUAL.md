@@ -2,6 +2,26 @@
 
 This guide is for doctors and clinic staff using MedRec on a laptop, tablet, or phone.
 
+## Connecting PostgreSQL on Render
+
+MedRec reads the database connection from `DATABASE_URL` first when the checked-in default connection string still contains the placeholder password.
+
+On Render:
+
+1. Open the MedRec web service in the Render dashboard.
+2. Go to Environment.
+3. Add `DATABASE_URL` with your Render PostgreSQL Internal Database URL if the app and database are on Render, or the External Database URL for local testing.
+4. Save and redeploy the web service.
+
+For a local PowerShell test, set the variable before running the app:
+
+```powershell
+$env:DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE?sslmode=require"
+dotnet run
+```
+
+The app runs `Database/schema.sql` at startup when PostgreSQL is configured, so the tables are created automatically if they do not exist.
+
 ## What MedRec Does
 
 MedRec keeps patient records, checkups, laboratories, prescriptions, reports, and doctor settings in one web app.
