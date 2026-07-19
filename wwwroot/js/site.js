@@ -66,6 +66,9 @@
   const localQueueKey = "medrec.localPostQueue";
   const legacyQueueKey = "medrec.offlineQueue";
   const pendingCheckupsKey = "medrec.pendingCheckups";
+  const pendingPatientsKey = "medrec.pendingPatients";
+  const pendingLabsKey = "medrec.pendingLabs";
+  const pendingPrescriptionsKey = "medrec.pendingPrescriptions";
   let serverReachable = navigator.onLine;
 
   function setConnectionState() {
@@ -1765,7 +1768,10 @@
       event.preventDefault();
       const formData = new FormData(form);
       const hasFile = Array.from(form.querySelectorAll("input[type='file']")).some((input) => input.files.length > 0);
+      const pendingPatient = buildPendingPatient(form);
       const pendingCheckup = buildPendingCheckup(form);
+      const pendingLab = buildPendingLab(form);
+      const pendingPrescription = buildPendingPrescription(form);
       const pendingCheckupUpdate = buildPendingCheckupUpdate(form);
 
       const fields = Array.from(formData.entries())
@@ -1775,10 +1781,19 @@
       try {
         if (window.medrecOfflineStore && typeof window.medrecOfflineStore.enqueuePost === "function") {
           await window.medrecOfflineStore.enqueuePost(form);
-          if (pendingCheckup) {
+          if (pendingPatient) {
+            savePendingPatient(pendingPatient);
+            renderPendingPatients();
+          } else if (pendingCheckup) {
             savePendingCheckup(pendingCheckup);
             renderPendingCheckups();
             showPendingCheckup(pendingCheckup);
+          } else if (pendingLab) {
+            savePendingLab(pendingLab);
+            renderPendingLabs();
+          } else if (pendingPrescription) {
+            savePendingPrescription(pendingPrescription);
+            renderPendingPrescriptions();
           } else if (pendingCheckupUpdate) {
             applyPendingCheckupUpdate(pendingCheckupUpdate);
           }
@@ -1795,10 +1810,19 @@
         }
 
         enqueueLocalPostItem({ action: form.action, method: form.method || "POST", fields });
-        if (pendingCheckup) {
+        if (pendingPatient) {
+          savePendingPatient(pendingPatient);
+          renderPendingPatients();
+        } else if (pendingCheckup) {
           savePendingCheckup(pendingCheckup);
           renderPendingCheckups();
           showPendingCheckup(pendingCheckup);
+        } else if (pendingLab) {
+          savePendingLab(pendingLab);
+          renderPendingLabs();
+        } else if (pendingPrescription) {
+          savePendingPrescription(pendingPrescription);
+          renderPendingPrescriptions();
         } else if (pendingCheckupUpdate) {
           applyPendingCheckupUpdate(pendingCheckupUpdate);
         }
@@ -1814,11 +1838,14 @@
   window.addEventListener("online", () => window.medrecOfflineStore?.replayPostQueue?.());
   document.addEventListener("medrec:offline-queue-replayed", (event) => {
     if ((event.detail?.remaining || 0) === 0 && (event.detail?.sent || 0) > 0) {
-      clearPendingCheckups();
-      reloadRecordsPageAfterSync();
+      clearPendingLocalChanges();
+      reloadCurrentDataPageAfterSync();
     }
   });
+  renderPendingPatients();
   renderPendingCheckups();
+  renderPendingLabs();
+  renderPendingPrescriptions();
 
   function antiForgeryToken() {
     return document.querySelector('input[name="__RequestVerificationToken"]')?.value || "";
@@ -1907,8 +1934,8 @@
 
     writeLocalPostQueue(remaining);
     if (sent > 0 && remaining.length === 0) {
-      clearPendingCheckups();
-      reloadRecordsPageAfterSync();
+      clearPendingLocalChanges();
+      reloadCurrentDataPageAfterSync();
     }
     showLocalFlash(remaining.length === 0
       ? "Locally saved changes were sent."
@@ -1931,6 +1958,36 @@
     }
 
     localStorage.setItem(localQueueKey, JSON.stringify(queue));
+  }
+
+  function buildPendingPatient(form) {
+    if (!isPath(form.action, "/Patients/Create")) {
+      return null;
+    }
+
+    const fullName = fieldValue(form, "NewPatient.FullName");
+    if (!fullName) {
+      return null;
+    }
+
+    return {
+      localId: crypto.randomUUID ? crypto.randomUUID() : `local-patient-${Date.now()}-${Math.random()}`,
+      fullName,
+      age: fieldValue(form, "NewPatient.Age") || "0",
+      sex: fieldValue(form, "NewPatient.Sex"),
+      civilStatus: fieldValue(form, "NewPatient.CivilStatus"),
+      contactNumber: fieldValue(form, "NewPatient.ContactNumber"),
+      email: fieldValue(form, "NewPatient.Email"),
+      partnerName: fieldValue(form, "NewPatient.PartnerName"),
+      partnerContactNumber: fieldValue(form, "NewPatient.PartnerContactNumber"),
+      menstrualPattern: fieldValue(form, "NewPatient.MenstrualPattern"),
+      sexuallyActive: fieldValue(form, "NewPatient.SexuallyActive"),
+      heightCm: fieldValue(form, "NewPatient.HeightCm"),
+      weightKg: fieldValue(form, "NewPatient.WeightKg"),
+      lastMenstrualPeriod: fieldValue(form, "NewPatient.LastMenstrualPeriod"),
+      referredBy: fieldValue(form, "NewPatient.ReferredBy"),
+      createdAtUtc: new Date().toISOString()
+    };
   }
 
   function buildPendingCheckup(form) {
@@ -1962,6 +2019,73 @@
       bloodPressure: fieldValue(form, "NewRecord.BloodPressure"),
       fetalHeartRate: fieldValue(form, "NewRecord.FetalHeartRate"),
       temperatureC: fieldValue(form, "NewRecord.TemperatureC"),
+      createdAtUtc: new Date().toISOString()
+    };
+  }
+
+  function buildPendingLab(form) {
+    if (!isPath(form.action, "/Records/UploadLab")) {
+      return null;
+    }
+
+    const patientId = fieldValue(form, "NewLab.PatientId");
+    const testName = fieldValue(form, "NewLab.TestName");
+    if (!patientId || !testName) {
+      return null;
+    }
+
+    const recordSelect = form.querySelector('[name="NewLab.ClinicalRecordId"]');
+    const selectedRecord = recordSelect?.selectedOptions?.[0];
+    const fileInput = form.querySelector('[name="NewLab.File"]');
+    const fileName = fileInput?.files?.[0]?.name || "";
+    const patientName = document.querySelector(".checkup-patient-title span")?.textContent?.trim() || "";
+
+    return {
+      localId: crypto.randomUUID ? crypto.randomUUID() : `local-lab-${Date.now()}-${Math.random()}`,
+      patientId,
+      patientName,
+      clinicalRecordId: fieldValue(form, "NewLab.ClinicalRecordId"),
+      checkupLabel: selectedRecord?.textContent?.trim() || "Not attached",
+      testName,
+      requestedDate: fieldValue(form, "NewLab.RequestedDate") || new Date().toISOString(),
+      resultDate: fieldValue(form, "NewLab.ResultDate"),
+      fileUrl: fieldValue(form, "NewLab.FileUrl"),
+      fileName,
+      createdAtUtc: new Date().toISOString()
+    };
+  }
+
+  function buildPendingPrescription(form) {
+    if (!isPath(form.action, "/Prescriptions/Create")) {
+      return null;
+    }
+
+    const patientId = fieldValue(form, "NewPrescription.PatientId");
+    const patientName = form.querySelector("[data-prescription-patient-search]")?.value?.trim() || "Patient";
+    const items = Array.from(form.querySelectorAll("[data-prescription-drug-row]"))
+      .map((row) => ({
+        medication: row.querySelector('[data-drug-field="Medication"]')?.value?.trim() || "",
+        dosage: row.querySelector('[data-drug-field="Dosage"]')?.value?.trim() || "",
+        frequency: row.querySelector('[data-drug-field="Frequency"]')?.value?.trim() || "",
+        duration: row.querySelector('[data-drug-field="Duration"]')?.value?.trim() || ""
+      }))
+      .filter((item) => item.medication || item.dosage || item.frequency || item.duration);
+
+    if (!patientId || items.length === 0) {
+      return null;
+    }
+
+    const checkupSelect = form.querySelector("[data-prescription-checkup-select]");
+    const selectedCheckup = checkupSelect?.selectedOptions?.[0];
+
+    return {
+      localId: crypto.randomUUID ? crypto.randomUUID() : `local-prescription-${Date.now()}-${Math.random()}`,
+      patientId,
+      patientName,
+      checkupLabel: selectedCheckup && selectedCheckup.value ? selectedCheckup.textContent.trim() : "",
+      issuedAt: new Date().toISOString(),
+      instructions: fieldValue(form, "NewPrescription.Instructions"),
+      items,
       createdAtUtc: new Date().toISOString()
     };
   }
@@ -2017,6 +2141,66 @@
     localStorage.setItem(pendingCheckupsKey, JSON.stringify(items));
   }
 
+  function readPendingPatients() {
+    return readLocalArray(pendingPatientsKey);
+  }
+
+  function writePendingPatients(items) {
+    writeLocalArray(pendingPatientsKey, items);
+  }
+
+  function savePendingPatient(patient) {
+    const items = readPendingPatients().filter((item) => item.localId !== patient.localId);
+    items.push(patient);
+    writePendingPatients(items);
+  }
+
+  function readPendingLabs() {
+    return readLocalArray(pendingLabsKey);
+  }
+
+  function writePendingLabs(items) {
+    writeLocalArray(pendingLabsKey, items);
+  }
+
+  function savePendingLab(lab) {
+    const items = readPendingLabs().filter((item) => item.localId !== lab.localId);
+    items.push(lab);
+    writePendingLabs(items);
+  }
+
+  function readPendingPrescriptions() {
+    return readLocalArray(pendingPrescriptionsKey);
+  }
+
+  function writePendingPrescriptions(items) {
+    writeLocalArray(pendingPrescriptionsKey, items);
+  }
+
+  function savePendingPrescription(prescription) {
+    const items = readPendingPrescriptions().filter((item) => item.localId !== prescription.localId);
+    items.push(prescription);
+    writePendingPrescriptions(items);
+  }
+
+  function readLocalArray(key) {
+    try {
+      const items = JSON.parse(localStorage.getItem(key) || "[]");
+      return Array.isArray(items) ? items : [];
+    } catch {
+      return [];
+    }
+  }
+
+  function writeLocalArray(key, items) {
+    if (!items.length) {
+      localStorage.removeItem(key);
+      return;
+    }
+
+    localStorage.setItem(key, JSON.stringify(items));
+  }
+
   function savePendingCheckup(record) {
     const items = readPendingCheckups().filter((item) => item.localId !== record.localId);
     items.push(record);
@@ -2028,10 +2212,64 @@
     document.querySelectorAll("[data-local-checkup-id]").forEach((item) => item.remove());
   }
 
-  function reloadRecordsPageAfterSync() {
-    if (window.location.pathname === "/Records") {
+  function clearPendingLocalChanges() {
+    localStorage.removeItem(pendingPatientsKey);
+    localStorage.removeItem(pendingCheckupsKey);
+    localStorage.removeItem(pendingLabsKey);
+    localStorage.removeItem(pendingPrescriptionsKey);
+    document.querySelectorAll("[data-local-patient-id], [data-local-checkup-id], [data-local-lab-id], [data-local-prescription-id]").forEach((item) => item.remove());
+  }
+
+  function reloadCurrentDataPageAfterSync() {
+    if (["/Patients", "/Records", "/Prescriptions"].includes(window.location.pathname)) {
       window.location.reload();
     }
+  }
+
+  function renderPendingPatients() {
+    const list = document.querySelector(".patient-cards");
+    if (!list) {
+      return;
+    }
+
+    document.querySelectorAll("[data-local-patient-id]").forEach((item) => item.remove());
+    readPendingPatients()
+      .sort((left, right) => new Date(right.createdAtUtc) - new Date(left.createdAtUtc))
+      .forEach((patient) => list.prepend(createPendingPatientCard(patient)));
+  }
+
+  function createPendingPatientCard(patient) {
+    const article = document.createElement("article");
+    article.className = "patient-card";
+    article.dataset.status = "pending";
+    article.dataset.localPatientId = patient.localId;
+    article.innerHTML = `
+      <div class="patient-card-head">
+        <div class="avatar avatar-large patient-card-photo">${escapeHtml(initial(patient.fullName))}</div>
+        <div>
+          <h2>${escapeHtml(patient.fullName)}</h2>
+          <span>${escapeHtml(patient.age || "0")} years old - ${escapeHtml(patient.civilStatus || "-")}</span>
+        </div>
+      </div>
+      <dl class="detail-grid">
+        <div><dt>Contact No.</dt><dd>${escapeHtml(patient.contactNumber || "")}</dd></div>
+        <div><dt>Email Address</dt><dd>${escapeHtml(patient.email || "")}</dd></div>
+        <div><dt>Husband/Partner</dt><dd>${escapeHtml(patient.partnerName || "")}</dd></div>
+        <div><dt>Partner Contact No.</dt><dd>${escapeHtml(patient.partnerContactNumber || "")}</dd></div>
+        <div><dt>Menstrual Pattern</dt><dd>${escapeHtml(patient.menstrualPattern || "")}</dd></div>
+        <div><dt>Last Checkup Complaint</dt><dd>-</dd></div>
+        <div><dt>Sexually Active</dt><dd>${escapeHtml(boolLabel(patient.sexuallyActive))}</dd></div>
+        <div><dt>BMI</dt><dd>${escapeHtml(bmiLabel(patient.heightCm, patient.weightKg))}</dd></div>
+        <div><dt>Age of Gestation</dt><dd>${escapeHtml(aogLabel(patient.lastMenstrualPeriod))}</dd></div>
+        <div><dt>EDD</dt><dd>${escapeHtml(eddLabel(patient.lastMenstrualPeriod))}</dd></div>
+        <div><dt>Referred By</dt><dd>${escapeHtml(patient.referredBy || "")}</dd></div>
+      </dl>
+      <div class="card-actions">
+        <span class="status pending">Pending</span>
+        <button class="btn btn-outline-primary" type="button" disabled>Check ups after sync</button>
+      </div>
+    `;
+    return article;
   }
 
   function currentRecordsPatientId() {
@@ -2075,6 +2313,115 @@
       });
       tabList.prepend(tab);
     });
+  }
+
+  function renderPendingLabs() {
+    const picker = document.querySelector(".lab-picker");
+    if (!picker) {
+      return;
+    }
+
+    document.querySelectorAll("[data-local-lab-id]").forEach((item) => item.remove());
+    const patientId = currentRecordsPatientId();
+    const selectedRecordId = new URLSearchParams(window.location.search).get("recordId")
+      || document.querySelector(".checkup-tab.active")?.href?.match(/[?&]recordId=(\d+)/)?.[1]
+      || "";
+
+    readPendingLabs()
+      .filter((lab) => !patientId || String(lab.patientId) === String(patientId))
+      .filter((lab) => !lab.clinicalRecordId || !selectedRecordId || String(lab.clinicalRecordId) === String(selectedRecordId))
+      .sort((left, right) => new Date(right.requestedDate) - new Date(left.requestedDate))
+      .forEach((lab) => picker.prepend(createPendingLabCard(lab)));
+  }
+
+  function renderPendingPrescriptions() {
+    const grid = document.querySelector(".prescription-grid");
+    if (!grid) {
+      return;
+    }
+
+    document.querySelectorAll("[data-local-prescription-id]").forEach((item) => item.remove());
+    readPendingPrescriptions()
+      .sort((left, right) => new Date(right.createdAtUtc) - new Date(left.createdAtUtc))
+      .forEach((prescription) => grid.prepend(createPendingPrescriptionCard(prescription)));
+  }
+
+  function createPendingPrescriptionCard(prescription) {
+    const article = document.createElement("article");
+    article.className = "prescription-item-card";
+    article.dataset.localPrescriptionId = prescription.localId;
+
+    const first = prescription.items?.[0];
+    const summary = first
+      ? `${first.medication || "Medication"} ${first.dosage || ""} ${first.frequency || ""} ${first.duration || ""}`.trim()
+      : "Prescription waiting to sync";
+
+    article.innerHTML = `
+      <div class="prescription-item">
+        <div class="prescription-info">
+          <div>
+            <strong>${escapeHtml(prescription.patientName || "Patient")}</strong>
+            ${prescription.checkupLabel ? `<span class="prescription-checkup">Check-up: ${escapeHtml(prescription.checkupLabel)}</span>` : ""}
+            <span class="prescription-checkup">${escapeHtml(summary)}</span>
+          </div>
+          <span class="prescription-date">Waiting to sync</span>
+        </div>
+        <button class="btn btn-outline-secondary" type="button" disabled>View after sync</button>
+      </div>
+    `;
+    return article;
+  }
+
+  function createPendingLabCard(lab) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "lab-picker-card";
+    wrapper.dataset.localLabId = lab.localId;
+
+    const button = document.createElement("button");
+    button.className = "lab-picker-item";
+    button.type = "button";
+    button.dataset.labTitle = lab.testName;
+    button.dataset.labPatient = `${lab.patientName || "Patient"} - Requested ${formatCheckupDate(lab.requestedDate)}`;
+
+    const title = document.createElement("strong");
+    title.textContent = lab.testName || "Pending lab";
+    const requested = document.createElement("span");
+    requested.textContent = `Requested ${formatCheckupDate(lab.requestedDate)}`;
+    const detail = document.createElement("small");
+    detail.textContent = lab.fileName ? `${lab.fileName} - waiting to sync` : "Waiting to sync";
+
+    button.append(title, requested, detail);
+    button.addEventListener("click", () => showPendingLab(lab, button));
+    wrapper.append(button);
+    return wrapper;
+  }
+
+  function showPendingLab(lab, button) {
+    document.querySelectorAll(".lab-picker-item").forEach((item) => item.classList.remove("active"));
+    button.classList.add("active");
+
+    const title = document.getElementById("pdfTitle");
+    const patient = document.getElementById("pdfPatient");
+    const empty = document.getElementById("labPdfEmpty");
+    const pdf = document.getElementById("labPdfFrame");
+    const image = document.getElementById("labImageFrame");
+
+    if (title) title.textContent = lab.testName || "Pending lab";
+    if (patient) patient.textContent = `${lab.patientName || "Patient"} - waiting to sync`;
+    if (pdf) {
+      pdf.classList.add("d-none");
+      pdf.src = "about:blank";
+    }
+    if (image) {
+      image.classList.add("d-none");
+      image.removeAttribute("src");
+    }
+    if (empty) {
+      empty.classList.remove("d-none");
+      empty.textContent = lab.fileName
+        ? `${lab.fileName} is saved on this device and will upload when the connection returns.`
+        : "This lab is saved on this device and will sync when the connection returns.";
+    }
   }
 
   function showPendingCheckup(record) {
@@ -2189,6 +2536,81 @@
 
   function textLabel(value) {
     return value || "-";
+  }
+
+  function initial(value) {
+    return (value || "?").trim().slice(0, 1).toUpperCase() || "?";
+  }
+
+  function boolLabel(value) {
+    if (value === "true") return "Yes";
+    if (value === "false") return "No";
+    return "-";
+  }
+
+  function bmiLabel(heightCm, weightKg) {
+    const height = Number(heightCm);
+    const weight = Number(weightKg);
+    if (!Number.isFinite(height) || !Number.isFinite(weight) || height <= 0) {
+      return "-";
+    }
+
+    const meters = height / 100;
+    return (weight / (meters * meters)).toFixed(1);
+  }
+
+  function aogLabel(lmp) {
+    const date = dateOnly(lmp);
+    if (!date) {
+      return "-";
+    }
+
+    const days = Math.floor((startOfToday() - date) / 86400000);
+    if (days < 0) {
+      return "-";
+    }
+    if (days >= 294) {
+      return "Post-term";
+    }
+
+    return `${Math.floor(days / 7)}w ${days % 7}d`;
+  }
+
+  function eddLabel(lmp) {
+    const date = dateOnly(lmp);
+    if (!date) {
+      return "-";
+    }
+
+    const due = new Date(date);
+    due.setDate(due.getDate() + 280);
+    const today = startOfToday();
+    if (due < today) {
+      return "Past due";
+    }
+    if (due.getTime() === today.getTime()) {
+      return "Due today";
+    }
+
+    return due.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  }
+
+  function dateOnly(value) {
+    if (!value) {
+      return null;
+    }
+
+    const parts = value.split("-").map((part) => Number(part));
+    if (parts.length < 3 || parts.some((part) => !Number.isFinite(part))) {
+      return null;
+    }
+
+    return new Date(parts[0], parts[1] - 1, parts[2]);
+  }
+
+  function startOfToday() {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
   }
 
   function escapeHtml(value) {
