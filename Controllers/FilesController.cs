@@ -73,7 +73,10 @@ public sealed class FilesController : Controller
             return NotFound();
         }
 
-        var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        await using var source = await response.Content.ReadAsStreamAsync(cancellationToken);
+        var stream = new MemoryStream();
+        await source.CopyToAsync(stream, cancellationToken);
+        stream.Position = 0;
         var contentType = response.Content.Headers.ContentType?.MediaType;
         Response.Headers.CacheControl = "private, max-age=3600";
         return File(stream, string.IsNullOrWhiteSpace(contentType) ? "application/pdf" : contentType, enableRangeProcessing: false);
