@@ -192,6 +192,15 @@ CREATE TABLE IF NOT EXISTS sync_queue (
 CREATE INDEX IF NOT EXISTS ix_sync_queue_status_updated ON sync_queue (status, updated_at);
 CREATE INDEX IF NOT EXISTS ix_sync_queue_entity ON sync_queue (entity_type, entity_uid);
 
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL DEFAULT '',
+  is_secret INTEGER NOT NULL DEFAULT 1,
+  sync_status TEXT NOT NULL DEFAULT 'Pending',
+  last_synced_at TEXT NULL,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS sync_runs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   sync_type TEXT NOT NULL,

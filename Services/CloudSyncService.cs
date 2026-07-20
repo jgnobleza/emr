@@ -12,6 +12,7 @@ public sealed class CloudSyncService
     private readonly IConfiguration _configuration;
     private readonly LocalAppPaths _localPaths;
     private readonly GoogleDriveStorage _googleDrive;
+    private readonly RuntimeSettingsService _runtimeSettings;
 
     public CloudSyncService(
         SqliteConnectionFactory sqliteConnections,
@@ -19,7 +20,8 @@ public sealed class CloudSyncService
         IWebHostEnvironment environment,
         IConfiguration configuration,
         LocalAppPaths localPaths,
-        GoogleDriveStorage googleDrive)
+        GoogleDriveStorage googleDrive,
+        RuntimeSettingsService runtimeSettings)
     {
         _sqliteConnections = sqliteConnections;
         _postgresConnections = postgresConnections;
@@ -27,6 +29,7 @@ public sealed class CloudSyncService
         _configuration = configuration;
         _localPaths = localPaths;
         _googleDrive = googleDrive;
+        _runtimeSettings = runtimeSettings;
     }
 
     public async Task<int> SyncAsync()
@@ -52,8 +55,10 @@ public sealed class CloudSyncService
         pushed += await PushLabResultsAsync(local, localTransaction, cloud, cloudTransaction);
         pushed += await PushPrescriptionsAsync(local, localTransaction, cloud, cloudTransaction);
         pushed += await PushPrintLayoutsAsync(local, localTransaction, cloud, cloudTransaction);
+        pushed += await PushAppSettingsAsync(local, localTransaction, cloud, cloudTransaction);
 
         var pulled = 0;
+        pulled += await PullAppSettingsAsync(local, localTransaction, cloud, cloudTransaction);
         pulled += await PullPatientsAsync(local, localTransaction, cloud, cloudTransaction);
         pulled += await PullClinicalRecordsAsync(local, localTransaction, cloud, cloudTransaction);
         pulled += await PullLabResultsAsync(local, localTransaction, cloud, cloudTransaction);
@@ -71,6 +76,7 @@ public sealed class CloudSyncService
 
         await cloudTransaction.CommitAsync();
         await localTransaction.CommitAsync();
+        await ApplyLocalSettingsToRuntimeAsync(local);
         return pushed + pulled;
     }
 
@@ -754,6 +760,73 @@ public sealed class CloudSyncService
         return count;
     }
 
+    private static async Task<int> PushAppSettingsAsync(SqliteConnection local, SqliteTransaction localTransaction, NpgsqlConnection cloud, NpgsqlTransaction cloudTransaction)
+    {
+        const string readSql = "SELECT key, value, is_secret FROM app_settings WHERE sync_status = 'Pending';";
+        var count = 0;
+        await using var read = new SqliteCommand(readSql, local, localTransaction);
+        await using var reader = await read.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            await using var command = new NpgsqlCommand("""
+                INSERT INTO app_settings (key, value, is_secret, updated_at)
+                VALUES (@key, @value, @isSecret, CURRENT_TIMESTAMP)
+                ON CONFLICT(key) DO UPDATE SET
+                  value=EXCLUDED.value,
+                  is_secret=EXCLUDED.is_secret,
+                  updated_at=CURRENT_TIMESTAMP;
+                """, cloud, cloudTransaction);
+            command.Parameters.AddWithValue("@key", Text(reader, "key"));
+            command.Parameters.AddWithValue("@value", Text(reader, "value"));
+            command.Parameters.AddWithValue("@isSecret", Int(reader, "is_secret") == 1);
+            await command.ExecuteNonQueryAsync();
+            count++;
+        }
+
+        await ExecuteLocalAsync(local, localTransaction, "UPDATE app_settings SET sync_status = 'Synced', last_synced_at = CURRENT_TIMESTAMP WHERE sync_status = 'Pending';");
+        return count;
+    }
+
+    private static async Task<int> PullAppSettingsAsync(SqliteConnection local, SqliteTransaction localTransaction, NpgsqlConnection cloud, NpgsqlTransaction cloudTransaction)
+    {
+        const string sql = "SELECT key, value, is_secret, updated_at FROM app_settings;";
+        var count = 0;
+        await using var command = new NpgsqlCommand(sql, cloud, cloudTransaction);
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            await ExecuteLocalAsync(local, localTransaction, """
+                INSERT INTO app_settings (key, value, is_secret, sync_status, last_synced_at, updated_at)
+                VALUES (@key, @value, @isSecret, 'Synced', CURRENT_TIMESTAMP, @updated)
+                ON CONFLICT(key) DO UPDATE SET
+                  value=excluded.value,
+                  is_secret=excluded.is_secret,
+                  sync_status='Synced',
+                  last_synced_at=CURRENT_TIMESTAMP,
+                  updated_at=excluded.updated_at;
+                """,
+                ("@key", PgText(reader, "key")),
+                ("@value", PgText(reader, "value")),
+                ("@isSecret", PgBool(reader, "is_secret") ? 1 : 0),
+                ("@updated", PgDateTimeText(reader, "updated_at") ?? DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")));
+            count++;
+        }
+        return count;
+    }
+
+    private async Task ApplyLocalSettingsToRuntimeAsync(SqliteConnection local)
+    {
+        var settings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        await using var command = new SqliteCommand("SELECT key, value FROM app_settings;", local);
+        await using var reader = await command.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            settings[Text(reader, "key")] = Text(reader, "value");
+        }
+
+        await _runtimeSettings.ApplySyncedSettingsAsync(settings);
+    }
+
     private static async Task<int?> LocalIdAsync(SqliteConnection local, SqliteTransaction transaction, string table, string clientUid)
     {
         await using var command = new SqliteCommand($"SELECT id FROM {table} WHERE client_uid = @uid LIMIT 1;", local, transaction);
@@ -849,6 +922,12 @@ public sealed class CloudSyncService
     {
         var ordinal = reader.GetOrdinal(name);
         return reader.IsDBNull(ordinal) ? null : reader.GetBoolean(ordinal) ? 1 : 0;
+    }
+
+    private static bool PgBool(NpgsqlDataReader reader, string name)
+    {
+        var ordinal = reader.GetOrdinal(name);
+        return !reader.IsDBNull(ordinal) && reader.GetBoolean(ordinal);
     }
 
     private static string? PgDateText(NpgsqlDataReader reader, string name)
