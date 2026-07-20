@@ -44,11 +44,13 @@ builder.Services.AddSingleton<RuntimeSettingsService>();
 builder.Services.AddScoped<AccountService>();
 builder.Services.AddScoped<OfflineSyncService>();
 builder.Services.AddScoped<CloudSyncService>();
+builder.Services.AddHostedService<CloudRuntimeSettingsRefreshService>();
 builder.Services.AddHostedService<DailySyncService>();
 
 var app = builder.Build();
 
 await EnsurePostgresSchemaAsync(app);
+await LoadCloudRuntimeSettingsAsync(app);
 await EnsureSqliteSchemaAsync(app);
 await EnsureDefaultPrintLayoutsAsync(app);
 
@@ -171,6 +173,25 @@ static async Task EnsurePostgresSchemaAsync(WebApplication app)
     catch (Exception ex)
     {
         app.Logger.LogWarning(ex, "Unable to initialize the PostgreSQL schema. The app will continue and show demo data if live tables are unavailable.");
+    }
+}
+
+static async Task LoadCloudRuntimeSettingsAsync(WebApplication app)
+{
+    try
+    {
+        if (app.Configuration.GetSection("MedRec").Get<MedRecStorageOptions>()?.UseLocalStorage == true)
+        {
+            return;
+        }
+
+        using var scope = app.Services.CreateScope();
+        var settings = scope.ServiceProvider.GetRequiredService<RuntimeSettingsService>();
+        await settings.LoadCloudSettingsAsync();
+    }
+    catch (Exception ex)
+    {
+        app.Logger.LogWarning(ex, "Unable to load shared runtime settings from PostgreSQL.");
     }
 }
 

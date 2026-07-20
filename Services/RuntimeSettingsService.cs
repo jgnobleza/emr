@@ -2,6 +2,7 @@ using System.Text.Json;
 using medrec.Data;
 using medrec.ViewModels;
 using Microsoft.Data.Sqlite;
+using Npgsql;
 
 namespace medrec.Services;
 
@@ -15,12 +16,18 @@ public sealed class RuntimeSettingsService
     private readonly IConfiguration _configuration;
     private readonly IWebHostEnvironment _environment;
     private readonly SqliteConnectionFactory _sqliteConnections;
+    private readonly PostgresConnectionFactory _postgresConnections;
 
-    public RuntimeSettingsService(IConfiguration configuration, IWebHostEnvironment environment, SqliteConnectionFactory sqliteConnections)
+    public RuntimeSettingsService(
+        IConfiguration configuration,
+        IWebHostEnvironment environment,
+        SqliteConnectionFactory sqliteConnections,
+        PostgresConnectionFactory postgresConnections)
     {
         _configuration = configuration;
         _environment = environment;
         _sqliteConnections = sqliteConnections;
+        _postgresConnections = postgresConnections;
     }
 
     private string SettingsPath => Path.Combine(_environment.ContentRootPath, "App_Data", "runtime-settings.json");
@@ -35,6 +42,7 @@ public sealed class RuntimeSettingsService
 
         await WriteDocumentAsync(document);
         await SaveLocalSettingsAsync(document);
+        await SaveCloudSettingsAsync(document);
 
         if (_configuration is IConfigurationRoot root)
         {
@@ -60,6 +68,7 @@ public sealed class RuntimeSettingsService
 
         await WriteDocumentAsync(document);
         await SaveLocalSettingsAsync(document);
+        await SaveCloudSettingsAsync(document);
 
         if (_configuration is IConfigurationRoot root)
         {
@@ -107,6 +116,37 @@ public sealed class RuntimeSettingsService
         }
     }
 
+    public async Task LoadCloudSettingsAsync()
+    {
+        if (!_postgresConnections.IsConfigured)
+        {
+            return;
+        }
+
+        try
+        {
+            var settings = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            await using var connection = _postgresConnections.CreateConnection();
+            await connection.OpenAsync();
+            await using var command = new NpgsqlCommand("SELECT key, value FROM app_settings;", connection);
+            await using var reader = await command.ExecuteReaderAsync();
+            while (await reader.ReadAsync())
+            {
+                var key = Convert.ToString(reader["key"]);
+                if (!string.IsNullOrWhiteSpace(key))
+                {
+                    settings[key] = Convert.ToString(reader["value"]) ?? string.Empty;
+                }
+            }
+
+            await ApplySyncedSettingsAsync(settings);
+        }
+        catch
+        {
+            // Startup can continue with environment/runtime settings if the shared settings table is unavailable.
+        }
+    }
+
     private async Task SaveLocalSettingsAsync(RuntimeSettingsDocument document)
     {
         try
@@ -135,6 +175,38 @@ public sealed class RuntimeSettingsService
         catch
         {
             // The web/cloud app may not have a local SQLite database. The JSON settings file remains the source in that case.
+        }
+    }
+
+    private async Task SaveCloudSettingsAsync(RuntimeSettingsDocument document)
+    {
+        try
+        {
+            if (!_postgresConnections.IsConfigured)
+            {
+                return;
+            }
+
+            await using var connection = _postgresConnections.CreateConnection();
+            await connection.OpenAsync();
+            foreach (var item in Flatten(document))
+            {
+                await using var command = new NpgsqlCommand("""
+                    INSERT INTO app_settings (key, value, is_secret, updated_at)
+                    VALUES (@key, @value, TRUE, CURRENT_TIMESTAMP)
+                    ON CONFLICT(key) DO UPDATE SET
+                      value=EXCLUDED.value,
+                      is_secret=TRUE,
+                      updated_at=CURRENT_TIMESTAMP;
+                    """, connection);
+                command.Parameters.AddWithValue("@key", item.Key);
+                command.Parameters.AddWithValue("@value", item.Value);
+                await command.ExecuteNonQueryAsync();
+            }
+        }
+        catch
+        {
+            // Keep the local/runtime save successful even if the cloud settings table is temporarily unavailable.
         }
     }
 
