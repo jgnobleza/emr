@@ -7,10 +7,12 @@ namespace medrec.Controllers;
 public sealed class FilesController : Controller
 {
     private readonly GoogleDriveStorage _googleDrive;
+    private readonly IHttpClientFactory _httpClientFactory;
 
-    public FilesController(GoogleDriveStorage googleDrive)
+    public FilesController(GoogleDriveStorage googleDrive, IHttpClientFactory httpClientFactory)
     {
         _googleDrive = googleDrive;
+        _httpClientFactory = httpClientFactory;
     }
 
     [HttpGet("drive/{fileId}/{*fileName}")]
@@ -28,15 +30,30 @@ public sealed class FilesController : Controller
         }
         catch
         {
-            return Redirect(GoogleDriveStorage.PublicDownloadUrl(fileId));
+            return await PublicDriveFile(fileId, cancellationToken);
         }
 
         if (download is null)
         {
-            return Redirect(GoogleDriveStorage.PublicDownloadUrl(fileId));
+            return await PublicDriveFile(fileId, cancellationToken);
         }
 
         Response.Headers.CacheControl = "private, max-age=3600";
         return File(download.Stream, download.ContentType, enableRangeProcessing: true);
+    }
+
+    private async Task<IActionResult> PublicDriveFile(string fileId, CancellationToken cancellationToken)
+    {
+        var client = _httpClientFactory.CreateClient();
+        using var response = await client.GetAsync(GoogleDriveStorage.PublicDownloadUrl(fileId), HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return NotFound();
+        }
+
+        var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        var contentType = response.Content.Headers.ContentType?.MediaType;
+        Response.Headers.CacheControl = "private, max-age=3600";
+        return File(stream, string.IsNullOrWhiteSpace(contentType) ? "application/pdf" : contentType, enableRangeProcessing: false);
     }
 }

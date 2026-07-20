@@ -16,6 +16,7 @@ builder.Configuration.AddJsonFile(runtimeSettingsPath, optional: true, reloadOnC
 
 // Add services to the container.
 builder.Services.AddControllersWithViews();
+builder.Services.AddHttpClient();
 builder.Services.AddSession(options =>
 {
     options.IdleTimeout = TimeSpan.FromDays(7);
