@@ -18,7 +18,10 @@
     </div>
 </section>
 
-<div class="system-alert">The app now uses the normal online pages only. If PostgreSQL is temporarily unavailable, the app keeps the page usable with fallback data until the connection is restored.</div>
+@if (ViewData["LocalMode"] as bool? == true)
+{
+    <div class="system-alert">Desktop local mode: changes are saved on this computer and queued for cloud sync.</div>
+}
 
 <section class="panel">
     <div class="panel-header">

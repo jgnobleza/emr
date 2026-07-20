@@ -5,15 +5,13 @@ namespace medrec.Data;
 public sealed class PostgresConnectionFactory
 {
     private readonly IConfiguration _configuration;
-    private readonly string? _connectionString;
 
     public PostgresConnectionFactory(IConfiguration configuration)
     {
         _configuration = configuration;
-        _connectionString = BuildConnectionString();
     }
 
-    public string? ConnectionString => _connectionString;
+    public string? ConnectionString => BuildConnectionString();
 
     public bool IsConfigured => !string.IsNullOrWhiteSpace(ConnectionString);
 
@@ -33,7 +31,7 @@ public sealed class PostgresConnectionFactory
         if (!string.IsNullOrWhiteSpace(configured)
             && !configured.Contains("change_this_password", StringComparison.OrdinalIgnoreCase))
         {
-            return configured;
+            return NormalizeConnectionString(configured);
         }
 
         var databaseUrl = _configuration["DATABASE_URL"];
@@ -42,9 +40,21 @@ public sealed class PostgresConnectionFactory
             return configured;
         }
 
-        var uri = new Uri(databaseUrl);
+        return NormalizeConnectionString(databaseUrl);
+    }
+
+    public static string NormalizeConnectionString(string connectionString)
+    {
+        if (!connectionString.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase)
+            && !connectionString.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase))
+        {
+            var configuredBuilder = new NpgsqlConnectionStringBuilder(connectionString);
+            return configuredBuilder.ConnectionString;
+        }
+
+        var uri = new Uri(connectionString);
         var userInfo = uri.UserInfo.Split(':', 2);
-        var builder = new NpgsqlConnectionStringBuilder
+        var urlBuilder = new NpgsqlConnectionStringBuilder
         {
             Host = uri.Host,
             Port = uri.Port > 0 ? uri.Port : 5432,
@@ -54,7 +64,7 @@ public sealed class PostgresConnectionFactory
             SslMode = SslMode.Require
         };
 
-        return builder.ConnectionString;
+        return urlBuilder.ConnectionString;
     }
 }
 

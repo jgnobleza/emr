@@ -7,10 +7,12 @@ namespace medrec.Controllers;
 public sealed class SettingsController : Controller
 {
     private readonly AccountService _accounts;
+    private readonly UploadStorage _uploads;
 
-    public SettingsController(AccountService accounts)
+    public SettingsController(AccountService accounts, UploadStorage uploads)
     {
         _accounts = accounts;
+        _uploads = uploads;
     }
 
     [HttpGet]
@@ -52,7 +54,7 @@ public sealed class SettingsController : Controller
 
         if (!ModelState.IsValid) return View(model);
 
-        var signatureUrl = await SaveSignatureAsync(model.Signature) ?? user.SignatureUrl;
+        var signatureUrl = await _uploads.SaveAsync(model.Signature, "signatures") ?? user.SignatureUrl;
         await _accounts.UpdateDoctorProfileAsync(user.Id, model.FullName, model.Specialty, model.LicenseNumber, model.ContactNumber, signatureUrl);
         HttpContext.Session.SetString("UserName", model.FullName.Trim());
         HttpContext.Session.SetString("UserSpecialty", model.Specialty.Trim());
@@ -72,14 +74,4 @@ public sealed class SettingsController : Controller
     private static bool IsAllowedImage(IFormFile file) =>
         new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp" }.Contains(Path.GetExtension(file.FileName), StringComparer.OrdinalIgnoreCase);
 
-    private static async Task<string?> SaveSignatureAsync(IFormFile? file)
-    {
-        if (file is null || file.Length == 0) return null;
-        var fileName = $"{Guid.NewGuid():N}{Path.GetExtension(file.FileName).ToLowerInvariant()}";
-        var root = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "signatures");
-        Directory.CreateDirectory(root);
-        await using var stream = System.IO.File.Create(Path.Combine(root, fileName));
-        await file.CopyToAsync(stream);
-        return $"/uploads/signatures/{fileName}";
-    }
 }

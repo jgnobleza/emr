@@ -1,0 +1,44 @@
+{
+  "name": "medrec-desktop",
+  "version": "0.1.4",
+  "private": true,
+  "description": "MedRec offline-first desktop shell",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^33.4.11",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.medrec.desktop",
+    "productName": "MedRec",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "README.md"
+    ],
+    "extraResources": [
+      {
+        "from": "../bin/Release/net10.0/publish",
+        "to": "server",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "signAndEditExecutable": false
+    },
+    "extraMetadata": {
+      "main": "main.js"
+    }
+  }
+}

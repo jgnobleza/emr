@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<Shell
+    x:Class="MedRec.Mobile.AppShell"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    xmlns:pages="clr-namespace:MedRec.Mobile.Pages"
+    Title="MedRec">
+
+    <TabBar>
+        <ShellContent
+            Title="Dashboard"
+            ContentTemplate="{DataTemplate pages:DashboardPage}"
+            Route="Dashboard" />
+        <ShellContent
+            Title="Patients"
+            ContentTemplate="{DataTemplate pages:PatientsPage}"
+            Route="Patients" />
+        <ShellContent
+            Title="Check Ups"
+            ContentTemplate="{DataTemplate pages:CheckupsPage}"
+            Route="Checkups" />
+        <ShellContent
+            Title="Sync"
+            ContentTemplate="{DataTemplate pages:SyncPage}"
+            Route="Sync" />
+    </TabBar>
+
+</Shell>

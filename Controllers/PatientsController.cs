@@ -1,4 +1,5 @@
 using medrec.Data;
+using medrec.Services;
 using medrec.ViewModels;
 using Microsoft.AspNetCore.Mvc;
 
@@ -7,10 +8,12 @@ namespace medrec.Controllers;
 public sealed class PatientsController : Controller
 {
     private readonly EmrRepository _repository;
+    private readonly UploadStorage _uploads;
 
-    public PatientsController(EmrRepository repository)
+    public PatientsController(EmrRepository repository, UploadStorage uploads)
     {
         _repository = repository;
+        _uploads = uploads;
     }
 
     public async Task<IActionResult> Index(bool addPatient = false)
@@ -48,7 +51,7 @@ public sealed class PatientsController : Controller
 
         try
         {
-            var photoUrl = await SaveUploadAsync(newPatient.Photo, "patients") ?? newPatient.PhotoUrl;
+            var photoUrl = await _uploads.SaveAsync(newPatient.Photo, "patients") ?? newPatient.PhotoUrl;
             await _repository.CreatePatientAsync(newPatient, photoUrl);
             TempData["Success"] = "Patient saved.";
         }
@@ -80,7 +83,7 @@ public sealed class PatientsController : Controller
 
         try
         {
-            var photoUrl = await SaveUploadAsync(editPatient.Photo, "patients") ?? editPatient.PhotoUrl;
+            var photoUrl = await _uploads.SaveAsync(editPatient.Photo, "patients") ?? editPatient.PhotoUrl;
             await _repository.UpdatePatientAsync(editPatient, photoUrl);
             TempData["Success"] = "Patient updated.";
         }
@@ -130,25 +133,6 @@ public sealed class PatientsController : Controller
         {
             ModelState.AddModelError(key, "Upload a JPG, PNG, GIF, or WEBP image.");
         }
-    }
-
-    private static async Task<string?> SaveUploadAsync(IFormFile? file, string folder)
-    {
-        if (file is null || file.Length == 0)
-        {
-            return null;
-        }
-
-        var extension = Path.GetExtension(file.FileName);
-        var fileName = $"{Guid.NewGuid():N}{extension}";
-        var uploadRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", folder);
-        Directory.CreateDirectory(uploadRoot);
-
-        var path = Path.Combine(uploadRoot, fileName);
-        await using var stream = System.IO.File.Create(path);
-        await file.CopyToAsync(stream);
-
-        return $"/uploads/{folder}/{fileName}";
     }
 
     private static string SaveError(Exception ex)

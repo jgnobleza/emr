@@ -922,6 +922,7 @@
         item.style.fontSize = `${block.fontSize}px`;
         item.style.textAlign = block.textAlign.toLowerCase();
         item.style.fontWeight = block.fontWeight === "Bold" ? "800" : "400";
+        item.style.zIndex = block.type === "Text" || block.type === "Line" || block.type === "Image" ? "3" : "1";
         item.classList.toggle("is-hidden", block.isVisible === false);
         item.classList.toggle("is-active", block.key === activeBlockKey);
         renderBuilderContent(item, block);

@@ -1,4 +1,5 @@
 using medrec.Data;
+using medrec.Services;
 using medrec.ViewModels;
 using Microsoft.AspNetCore.Mvc;
 
@@ -7,10 +8,12 @@ namespace medrec.Controllers;
 public sealed class RecordsController : Controller
 {
     private readonly EmrRepository _repository;
+    private readonly UploadStorage _uploads;
 
-    public RecordsController(EmrRepository repository)
+    public RecordsController(EmrRepository repository, UploadStorage uploads)
     {
         _repository = repository;
+        _uploads = uploads;
     }
 
     public async Task<IActionResult> Index(int? patientId = null, int? recordId = null)
@@ -120,7 +123,7 @@ public sealed class RecordsController : Controller
 
         try
         {
-            var fileUrl = await SaveUploadAsync(newLab.File, "labs") ?? newLab.FileUrl!.Trim();
+            var fileUrl = await _uploads.SaveAsync(newLab.File, "labs") ?? newLab.FileUrl!.Trim();
             await _repository.CreateLabResultAsync(newLab, fileUrl);
             TempData["Success"] = "Lab result saved.";
         }
@@ -265,25 +268,6 @@ public sealed class RecordsController : Controller
             },
             ComplaintSuggestions = complaintSuggestions
         };
-    }
-
-    private static async Task<string?> SaveUploadAsync(IFormFile? file, string folder)
-    {
-        if (file is null || file.Length == 0)
-        {
-            return null;
-        }
-
-        var extension = Path.GetExtension(file.FileName);
-        var fileName = $"{Guid.NewGuid():N}{extension}";
-        var uploadRoot = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", folder);
-        Directory.CreateDirectory(uploadRoot);
-
-        var path = Path.Combine(uploadRoot, fileName);
-        await using var stream = System.IO.File.Create(path);
-        await file.CopyToAsync(stream);
-
-        return $"/uploads/{folder}/{fileName}";
     }
 
     private static bool IsAllowedLabFile(IFormFile file)

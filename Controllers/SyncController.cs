@@ -6,14 +6,19 @@ namespace medrec.Controllers;
 public sealed class SyncController : Controller
 {
     private readonly EmrRepository _repository;
+    private readonly MedRecStorageOptions _options;
+    private readonly ILogger<SyncController> _logger;
 
-    public SyncController(EmrRepository repository)
+    public SyncController(EmrRepository repository, IConfiguration configuration, ILogger<SyncController> logger)
     {
         _repository = repository;
+        _logger = logger;
+        _options = configuration.GetSection("MedRec").Get<MedRecStorageOptions>() ?? new MedRecStorageOptions();
     }
 
     public async Task<IActionResult> Index()
     {
+        ViewData["LocalMode"] = _options.UseLocalStorage;
         return View(await _repository.GetDashboardAsync());
     }
 
@@ -28,9 +33,8 @@ public sealed class SyncController : Controller
         }
         catch (Exception ex)
         {
-            TempData["Error"] = ex is InvalidOperationException
-                ? ex.Message
-                : "Sync failed. Check the PostgreSQL connection and schema.";
+            _logger.LogError(ex, "Manual sync failed.");
+            TempData["Error"] = $"Sync failed: {ReadableError(ex)}";
         }
 
         if (!string.IsNullOrWhiteSpace(returnUrl) && Url.IsLocalUrl(returnUrl))
@@ -52,9 +56,8 @@ public sealed class SyncController : Controller
         }
         catch (Exception ex)
         {
-            TempData["Error"] = ex is InvalidOperationException
-                ? ex.Message
-                : "Record cleanup failed. Check the PostgreSQL connection and schema.";
+            _logger.LogError(ex, "Record cleanup failed.");
+            TempData["Error"] = $"Record cleanup failed: {ReadableError(ex)}";
         }
 
         if (!string.IsNullOrWhiteSpace(returnUrl) && Url.IsLocalUrl(returnUrl))
@@ -63,6 +66,17 @@ public sealed class SyncController : Controller
         }
 
         return RedirectToAction(nameof(Index));
+    }
+
+    private static string ReadableError(Exception ex)
+    {
+        var current = ex;
+        while (current.InnerException is not null)
+        {
+            current = current.InnerException;
+        }
+
+        return current.Message;
     }
 }
 

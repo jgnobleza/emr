@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="MedRec.Mobile.Pages.PatientsPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    Title="Patients">
+    <Grid RowDefinitions="Auto,*" Padding="20" RowSpacing="16">
+        <VerticalStackLayout Spacing="10">
+            <Label Text="New patient" FontSize="20" FontAttributes="Bold" TextColor="#0F172A" />
+            <Entry x:Name="NameEntry" Placeholder="Full name" />
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="10">
+                <Entry x:Name="AgeEntry" Placeholder="Age" Keyboard="Numeric" />
+                <Picker x:Name="SexPicker" Grid.Column="1" Title="Sex">
+                    <Picker.Items>
+                        <x:String>Female</x:String>
+                        <x:String>Male</x:String>
+                    </Picker.Items>
+                </Picker>
+            </Grid>
+            <Entry x:Name="ContactEntry" Placeholder="Contact number" Keyboard="Telephone" />
+            <Editor x:Name="AddressEditor" Placeholder="Address" AutoSize="TextChanges" HeightRequest="72" />
+            <Button Text="Save patient" Clicked="SavePatientClicked" BackgroundColor="#075985" TextColor="#FFFFFF" />
+        </VerticalStackLayout>
+
+        <CollectionView x:Name="PatientsList" Grid.Row="1" SelectionMode="None">
+            <CollectionView.EmptyView>
+                <Label Text="No patients yet." TextColor="#64748B" HorizontalOptions="Center" VerticalOptions="Center" />
+            </CollectionView.EmptyView>
+            <CollectionView.ItemTemplate>
+                <DataTemplate>
+                    <Border Stroke="#D6DEE8" StrokeThickness="1" BackgroundColor="#FFFFFF" Padding="12" Margin="0,0,0,10">
+                        <VerticalStackLayout Spacing="4">
+                            <Label Text="{Binding FullName}" FontSize="17" FontAttributes="Bold" TextColor="#0F172A" />
+                            <Label Text="{Binding ContactNumber}" TextColor="#475569" />
+                            <Label Text="{Binding SyncStatus}" FontSize="12" TextColor="#B45309" />
+                        </VerticalStackLayout>
+                    </Border>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+    </Grid>
+</ContentPage>

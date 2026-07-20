@@ -128,8 +128,59 @@
         <dl class="settings-list">
             <div><dt>Patient images</dt><dd><code>wwwroot/uploads/patients</code></dd></div>
             <div><dt>Automatic sync</dt><dd>Daily at 6:00 PM</dd></div>
-            <div><dt>Database</dt><dd>PostgreSQL connection configured by the server administrator</dd></div>
+            <div><dt>Database</dt><dd>Render PostgreSQL connection can be edited below.</dd></div>
         </dl>
+
+        <form asp-action="TestPostgresConnection" method="post" class="account-form mt-3">
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+            <div>
+                <label asp-for="PostgresSettings.ConnectionString" class="form-label"></label>
+                <textarea asp-for="PostgresSettings.ConnectionString" class="form-control" rows="4" spellcheck="false" autocomplete="off" placeholder="postgresql://user:password@host/database"></textarea>
+                <span asp-validation-for="PostgresSettings.ConnectionString" class="text-danger"></span>
+                <p class="text-muted mt-2 mb-0">Paste Render's External Database URL for desktop/local use, or Internal Database URL when this app is running on Render beside the database.</p>
+            </div>
+            <div class="layout-admin-actions">
+                <button class="btn btn-outline-primary" type="submit">Test connection</button>
+                <button class="btn btn-primary" type="submit" formaction="@Url.Action("SavePostgresSettings", "Admin")">Save connection</button>
+                <button class="btn btn-outline-secondary" type="submit" formaction="@Url.Action("InitializePostgresDatabase", "Admin")" data-confirm="Initialize MedRec tables on this PostgreSQL database?">Initialize database tables</button>
+            </div>
+        </form>
+
+        <hr>
+
+        <form asp-action="TestGoogleDriveSettings" method="post" class="account-form mt-3">
+            <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+            <div>
+                <label asp-for="GoogleDriveSettings.ApplicationName" class="form-label"></label>
+                <input asp-for="GoogleDriveSettings.ApplicationName" class="form-control" autocomplete="off">
+                <span asp-validation-for="GoogleDriveSettings.ApplicationName" class="text-danger"></span>
+            </div>
+            <div>
+                <label asp-for="GoogleDriveSettings.FolderId" class="form-label"></label>
+                <input asp-for="GoogleDriveSettings.FolderId" class="form-control" autocomplete="off" placeholder="Google Drive folder ID">
+                <span asp-validation-for="GoogleDriveSettings.FolderId" class="text-danger"></span>
+                <p class="text-muted mt-2 mb-0">Share this folder with the service account email from your JSON credentials.</p>
+            </div>
+            <div>
+                <label asp-for="GoogleDriveSettings.ServiceAccountJson" class="form-label"></label>
+                <textarea asp-for="GoogleDriveSettings.ServiceAccountJson" class="form-control" rows="5" spellcheck="false" autocomplete="off" placeholder="{ &quot;type&quot;: &quot;service_account&quot;, ... }"></textarea>
+                <span asp-validation-for="GoogleDriveSettings.ServiceAccountJson" class="text-danger"></span>
+            </div>
+            <div>
+                <label asp-for="GoogleDriveSettings.ServiceAccountJsonBase64" class="form-label"></label>
+                <textarea asp-for="GoogleDriveSettings.ServiceAccountJsonBase64" class="form-control" rows="3" spellcheck="false" autocomplete="off"></textarea>
+                <span asp-validation-for="GoogleDriveSettings.ServiceAccountJsonBase64" class="text-danger"></span>
+            </div>
+            <div>
+                <label asp-for="GoogleDriveSettings.ServiceAccountJsonPath" class="form-label"></label>
+                <input asp-for="GoogleDriveSettings.ServiceAccountJsonPath" class="form-control" autocomplete="off" placeholder="C:\path\service-account.json">
+                <span asp-validation-for="GoogleDriveSettings.ServiceAccountJsonPath" class="text-danger"></span>
+            </div>
+            <div class="layout-admin-actions">
+                <button class="btn btn-outline-primary" type="submit">Test Google Drive</button>
+                <button class="btn btn-primary" type="submit" formaction="@Url.Action("SaveGoogleDriveSettings", "Admin")">Save Google Drive</button>
+            </div>
+        </form>
     </article>
 </section>
 

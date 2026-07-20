@@ -1621,7 +1621,7 @@ dd {
 
 .layout-editor-grid {
   display: grid;
-  grid-template-columns: minmax(360px, 0.9fr) minmax(0, 1.1fr);
+  grid-template-columns: minmax(560px, 0.72fr) minmax(0, 1fr);
   gap: 1rem;
   min-height: 0;
 }
@@ -1711,6 +1711,29 @@ dd {
   background: #eef4f8;
 }
 
+.layout-editor-dialog {
+  width: calc(100vw - 1rem);
+  max-width: 1680px;
+  margin: 0.5rem auto;
+}
+
+.layout-editor-dialog.modal-dialog-scrollable {
+  height: calc(100dvh - 1rem);
+  max-height: calc(100dvh - 1rem);
+}
+
+.layout-editor-dialog .modal-body {
+  overflow: hidden;
+}
+
+.layout-editor-dialog .layout-editor-fields {
+  max-height: calc(100dvh - 10rem);
+}
+
+.layout-editor-dialog .layout-builder-shell {
+  max-height: calc(100dvh - 10rem);
+}
+
 .layout-builder-canvas,
 .print-canvas {
   position: relative;
@@ -1758,6 +1781,22 @@ dd {
   cursor: move;
   overflow: visible;
   user-select: none;
+}
+
+.layout-builder-block-text,
+.layout-builder-block-line,
+.layout-builder-block-image,
+.print-block-text,
+.print-block-line,
+.print-block-image {
+  z-index: 3;
+}
+
+.layout-builder-block-text,
+.layout-builder-block-line,
+.print-block-text,
+.print-block-line {
+  color: #111827;
 }
 
 .layout-builder-content {
@@ -1846,6 +1885,7 @@ dd {
   width: 100%;
   height: 0;
   border-top: 2px solid #111827;
+  opacity: 1;
 }
 
 .layout-builder-block:hover,
@@ -1989,6 +2029,7 @@ dd {
 }
 
 .layout-builder-block-text .layout-builder-content {
+  color: #111827;
   line-height: 1.15;
   white-space: pre-wrap;
 }

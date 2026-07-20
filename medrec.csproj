@@ -4,16 +4,34 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <DefaultItemExcludes>$(DefaultItemExcludes);artifacts\**;App_Data\**;wwwroot\uploads\**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);artifacts\**;App_Data\**;wwwroot\uploads\**;desktop\dist\**;desktop\node_modules\**;mobile\**;.android-sdk\**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Google.Apis.Drive.v3" Version="1.75.0.4192" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.0" />
     <PackageReference Include="Npgsql" Version="10.0.0" />
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.12" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Database\schema.sql" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="Database\sqlite-schema.sql" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
     <Content Remove="artifacts\**" />
     <None Remove="artifacts\**" />
+    <Content Remove="desktop\dist\**" />
+    <None Remove="desktop\dist\**" />
+    <Content Remove="desktop\node_modules\**" />
+    <None Remove="desktop\node_modules\**" />
+    <Content Remove="mobile\**" />
+    <None Remove="mobile\**" />
+    <Compile Remove="mobile\**" />
+    <Content Remove=".android-sdk\**" />
+    <None Remove=".android-sdk\**" />
+    <Compile Remove=".android-sdk\**" />
   </ItemGroup>
 
 </Project>

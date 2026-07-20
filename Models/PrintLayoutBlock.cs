@@ -35,7 +35,9 @@ public sealed class PrintLayoutBlock
     public string CssFontWeight => FontWeight.Equals("Bold", StringComparison.OrdinalIgnoreCase) ? "800" : "400";
 
     [JsonIgnore]
-    public int CssZIndex => Type.Equals("Text", StringComparison.OrdinalIgnoreCase) || Type.Equals("Image", StringComparison.OrdinalIgnoreCase)
-        ? 2
-        : 1;
+    public int CssZIndex => Type.Equals("Text", StringComparison.OrdinalIgnoreCase)
+        || Type.Equals("Line", StringComparison.OrdinalIgnoreCase)
+        || Type.Equals("Image", StringComparison.OrdinalIgnoreCase)
+            ? 3
+            : 1;
 }

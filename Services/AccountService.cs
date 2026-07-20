@@ -1,5 +1,6 @@
 using medrec.Data;
 using medrec.Models;
+using Microsoft.Data.Sqlite;
 using Npgsql;
 
 namespace medrec.Services;
@@ -7,18 +8,28 @@ namespace medrec.Services;
 public sealed class AccountService
 {
     private readonly PostgresConnectionFactory _connections;
+    private readonly SqliteConnectionFactory _sqliteConnections;
     private readonly PasswordService _passwords;
     private readonly IConfiguration _configuration;
+    private readonly MedRecStorageOptions _options;
 
-    public AccountService(PostgresConnectionFactory connections, PasswordService passwords, IConfiguration configuration)
+    public AccountService(PostgresConnectionFactory connections, SqliteConnectionFactory sqliteConnections, PasswordService passwords, IConfiguration configuration)
     {
         _connections = connections;
+        _sqliteConnections = sqliteConnections;
         _passwords = passwords;
         _configuration = configuration;
+        _options = configuration.GetSection("MedRec").Get<MedRecStorageOptions>() ?? new MedRecStorageOptions();
     }
 
     public async Task EnsureAccountsAsync()
     {
+        if (_options.UseLocalStorage)
+        {
+            await EnsureSqliteAccountsAsync();
+            return;
+        }
+
         await using var connection = _connections.CreateConnection();
         await connection.OpenAsync();
 
@@ -47,6 +58,11 @@ public sealed class AccountService
 
     public async Task<AppUser?> AuthenticateAsync(string identifier, string password)
     {
+        if (_options.UseLocalStorage)
+        {
+            return await AuthenticateSqliteAsync(identifier, password);
+        }
+
         await EnsureAccountsAsync();
         await using var connection = _connections.CreateConnection();
         await connection.OpenAsync();
@@ -70,6 +86,11 @@ public sealed class AccountService
 
     public async Task<IReadOnlyList<AppUser>> GetUsersAsync()
     {
+        if (_options.UseLocalStorage)
+        {
+            return await GetSqliteUsersAsync();
+        }
+
         await EnsureAccountsAsync();
         await using var connection = _connections.CreateConnection();
         await connection.OpenAsync();
@@ -83,6 +104,12 @@ public sealed class AccountService
 
     public async Task CreateDoctorAsync(string fullName, string email, string password)
     {
+        if (_options.UseLocalStorage)
+        {
+            await CreateSqliteDoctorAsync(fullName, email, password);
+            return;
+        }
+
         await EnsureAccountsAsync();
         await using var connection = _connections.CreateConnection();
         await connection.OpenAsync();
@@ -106,6 +133,11 @@ public sealed class AccountService
 
     public async Task<AppUser?> GetUserAsync(int id)
     {
+        if (_options.UseLocalStorage)
+        {
+            return await GetSqliteUserAsync(id);
+        }
+
         await EnsureAccountsAsync();
         await using var connection = _connections.CreateConnection();
         await connection.OpenAsync();
@@ -118,6 +150,12 @@ public sealed class AccountService
 
     public async Task UpdateDoctorProfileAsync(int id, string fullName, string specialty, string licenseNumber, string contactNumber, string? signatureUrl)
     {
+        if (_options.UseLocalStorage)
+        {
+            await UpdateSqliteDoctorProfileAsync(id, fullName, specialty, licenseNumber, contactNumber, signatureUrl);
+            return;
+        }
+
         await EnsureAccountsAsync();
         await using var connection = _connections.CreateConnection();
         await connection.OpenAsync();
@@ -196,6 +234,182 @@ public sealed class AccountService
         IsActive = reader.GetBoolean("is_active"),
         CreatedAt = reader.GetDateTime("created_at")
     };
+
+    private async Task EnsureSqliteAccountsAsync()
+    {
+        await using var connection = _sqliteConnections.CreateConnection();
+        await connection.OpenAsync();
+        await ExecuteSqliteAsync(connection, """
+            CREATE TABLE IF NOT EXISTS users (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              client_uid TEXT NOT NULL UNIQUE,
+              full_name TEXT NOT NULL,
+              email TEXT NOT NULL UNIQUE,
+              password_hash TEXT NOT NULL,
+              role TEXT NOT NULL DEFAULT 'Doctor',
+              specialty TEXT NOT NULL DEFAULT '',
+              license_number TEXT NOT NULL DEFAULT '',
+              contact_number TEXT NOT NULL DEFAULT '',
+              signature_url TEXT NULL,
+              is_active INTEGER NOT NULL DEFAULT 1,
+              sync_status TEXT NOT NULL DEFAULT 'Pending',
+              last_synced_at TEXT NULL,
+              created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+              updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+            """);
+
+        await EnsureConfiguredSqliteUserAsync(connection, "AdminLogin", "Administrator", "admin", "admin123", "Admin");
+        await EnsureConfiguredSqliteUserAsync(connection, "DoctorLogin", "Doctor", "doctor", "doctor123", "Doctor");
+    }
+
+    private async Task<AppUser?> AuthenticateSqliteAsync(string identifier, string password)
+    {
+        await EnsureSqliteAccountsAsync();
+        await using var connection = _sqliteConnections.CreateConnection();
+        await connection.OpenAsync();
+        const string sql = """
+            SELECT id, full_name, email, password_hash, role, specialty, license_number,
+                   contact_number, signature_url, is_active, created_at
+            FROM users
+            WHERE LOWER(email) = LOWER(@identifier) AND is_active = 1
+            LIMIT 1;
+            """;
+        await using var command = new SqliteCommand(sql, connection);
+        command.Parameters.AddWithValue("@identifier", identifier.Trim());
+        await using var reader = await command.ExecuteReaderAsync();
+        if (!await reader.ReadAsync() || !_passwords.Verify(password, Text(reader, "password_hash")))
+        {
+            return null;
+        }
+
+        return ReadSqliteUser(reader);
+    }
+
+    private async Task<IReadOnlyList<AppUser>> GetSqliteUsersAsync()
+    {
+        await EnsureSqliteAccountsAsync();
+        await using var connection = _sqliteConnections.CreateConnection();
+        await connection.OpenAsync();
+        await using var command = new SqliteCommand("SELECT id, full_name, email, role, specialty, license_number, contact_number, signature_url, is_active, created_at FROM users ORDER BY role, full_name;", connection);
+        await using var reader = await command.ExecuteReaderAsync();
+        var users = new List<AppUser>();
+        while (await reader.ReadAsync())
+        {
+            users.Add(ReadSqliteUser(reader));
+        }
+
+        return users;
+    }
+
+    private async Task CreateSqliteDoctorAsync(string fullName, string email, string password)
+    {
+        await EnsureSqliteAccountsAsync();
+        await using var connection = _sqliteConnections.CreateConnection();
+        await connection.OpenAsync();
+        const string sql = "INSERT INTO users (client_uid, full_name, email, password_hash, role, is_active) VALUES (@clientUid, @fullName, @email, @passwordHash, 'Doctor', 1);";
+        await using var command = new SqliteCommand(sql, connection);
+        command.Parameters.AddWithValue("@clientUid", Guid.NewGuid().ToString());
+        command.Parameters.AddWithValue("@fullName", fullName.Trim());
+        command.Parameters.AddWithValue("@email", email.Trim());
+        command.Parameters.AddWithValue("@passwordHash", _passwords.Hash(password));
+        try
+        {
+            await command.ExecuteNonQueryAsync();
+        }
+        catch (SqliteException ex) when (ex.SqliteErrorCode == 19)
+        {
+            throw new InvalidOperationException("An account with that username or email already exists.", ex);
+        }
+    }
+
+    private async Task<AppUser?> GetSqliteUserAsync(int id)
+    {
+        await EnsureSqliteAccountsAsync();
+        await using var connection = _sqliteConnections.CreateConnection();
+        await connection.OpenAsync();
+        await using var command = new SqliteCommand("SELECT id, full_name, email, role, specialty, license_number, contact_number, signature_url, is_active, created_at FROM users WHERE id = @id LIMIT 1;", connection);
+        command.Parameters.AddWithValue("@id", id);
+        await using var reader = await command.ExecuteReaderAsync();
+        return await reader.ReadAsync() ? ReadSqliteUser(reader) : null;
+    }
+
+    private async Task UpdateSqliteDoctorProfileAsync(int id, string fullName, string specialty, string licenseNumber, string contactNumber, string? signatureUrl)
+    {
+        await EnsureSqliteAccountsAsync();
+        await using var connection = _sqliteConnections.CreateConnection();
+        await connection.OpenAsync();
+        const string sql = """
+            UPDATE users
+            SET full_name = @fullName,
+                specialty = @specialty,
+                license_number = @licenseNumber,
+                contact_number = @contactNumber,
+                signature_url = COALESCE(@signatureUrl, signature_url),
+                sync_status = 'Pending',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE id = @id AND is_active = 1;
+            """;
+        await using var command = new SqliteCommand(sql, connection);
+        command.Parameters.AddWithValue("@id", id);
+        command.Parameters.AddWithValue("@fullName", fullName.Trim());
+        command.Parameters.AddWithValue("@specialty", specialty.Trim());
+        command.Parameters.AddWithValue("@licenseNumber", licenseNumber.Trim());
+        command.Parameters.AddWithValue("@contactNumber", contactNumber.Trim());
+        command.Parameters.AddWithValue("@signatureUrl", string.IsNullOrWhiteSpace(signatureUrl) ? DBNull.Value : signatureUrl.Trim());
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private async Task EnsureConfiguredSqliteUserAsync(SqliteConnection connection, string section, string fallbackName, string fallbackUsername, string fallbackPassword, string role)
+    {
+        var name = _configuration[$"{section}:Name"] ?? fallbackName;
+        var username = _configuration[$"{section}:Username"] ?? _configuration[$"{section}:Email"] ?? fallbackUsername;
+        var password = _configuration[$"{section}:Password"] ?? fallbackPassword;
+        const string sql = """
+            INSERT INTO users (client_uid, full_name, email, password_hash, role, is_active)
+            VALUES (@clientUid, @name, @email, @passwordHash, @role, 1)
+            ON CONFLICT(email) DO NOTHING;
+            """;
+        await using var command = new SqliteCommand(sql, connection);
+        command.Parameters.AddWithValue("@clientUid", Guid.NewGuid().ToString());
+        command.Parameters.AddWithValue("@name", name.Trim());
+        command.Parameters.AddWithValue("@email", username.Trim());
+        command.Parameters.AddWithValue("@passwordHash", _passwords.Hash(password));
+        command.Parameters.AddWithValue("@role", role);
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static async Task ExecuteSqliteAsync(SqliteConnection connection, string sql)
+    {
+        await using var command = new SqliteCommand(sql, connection);
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static AppUser ReadSqliteUser(SqliteDataReader reader) => new()
+    {
+        Id = Convert.ToInt32(reader["id"]),
+        FullName = Text(reader, "full_name"),
+        Email = Text(reader, "email"),
+        Role = Text(reader, "role"),
+        Specialty = Text(reader, "specialty"),
+        LicenseNumber = Text(reader, "license_number"),
+        ContactNumber = Text(reader, "contact_number"),
+        SignatureUrl = TextOrNull(reader, "signature_url"),
+        IsActive = Convert.ToInt32(reader["is_active"]) != 0,
+        CreatedAt = DateTime.TryParse(Convert.ToString(reader["created_at"]), out var createdAt) ? createdAt : DateTime.Now
+    };
+
+    private static string Text(SqliteDataReader reader, string name)
+    {
+        var ordinal = reader.GetOrdinal(name);
+        return reader.IsDBNull(ordinal) ? string.Empty : Convert.ToString(reader.GetValue(ordinal)) ?? string.Empty;
+    }
+
+    private static string? TextOrNull(SqliteDataReader reader, string name)
+    {
+        var value = Text(reader, name);
+        return string.IsNullOrWhiteSpace(value) ? null : value;
+    }
 }
 
 

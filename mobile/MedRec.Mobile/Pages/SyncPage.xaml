@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="MedRec.Mobile.Pages.SyncPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    Title="Sync">
+    <ScrollView>
+        <VerticalStackLayout Padding="20" Spacing="14">
+            <Label Text="Cloud sync" FontSize="22" FontAttributes="Bold" TextColor="#0F172A" />
+            <Entry x:Name="CloudUrlEntry" Placeholder="Cloud URL" Keyboard="Url" />
+            <Button Text="Save cloud URL" Clicked="SaveCloudUrlClicked" BackgroundColor="#075985" TextColor="#FFFFFF" />
+            <Button Text="Manual sync" Clicked="ManualSyncClicked" BackgroundColor="#166534" TextColor="#FFFFFF" />
+
+            <Border Stroke="#D6DEE8" StrokeThickness="1" BackgroundColor="#FFFFFF" Padding="14">
+                <VerticalStackLayout Spacing="6">
+                    <Label Text="Status" TextColor="#64748B" />
+                    <Label x:Name="StatusLabel" Text="Ready" FontSize="16" TextColor="#334155" />
+                    <Label x:Name="PendingLabel" Text="0 pending changes" FontSize="13" TextColor="#B45309" />
+                </VerticalStackLayout>
+            </Border>
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

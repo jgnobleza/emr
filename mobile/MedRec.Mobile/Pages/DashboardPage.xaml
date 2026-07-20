@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="MedRec.Mobile.Pages.DashboardPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    Title="Dashboard">
+    <ScrollView>
+        <VerticalStackLayout Padding="20" Spacing="16">
+            <Label Text="MedRec" FontSize="28" FontAttributes="Bold" TextColor="#0F172A" />
+            <Label Text="Offline mobile workspace" FontSize="16" TextColor="#475569" />
+
+            <Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" ColumnSpacing="12" RowSpacing="12">
+                <Border Stroke="#D6DEE8" StrokeThickness="1" BackgroundColor="#FFFFFF" Padding="16">
+                    <VerticalStackLayout Spacing="4">
+                        <Label Text="Patients" TextColor="#64748B" />
+                        <Label x:Name="PatientsCountLabel" Text="0" FontSize="32" FontAttributes="Bold" TextColor="#075985" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <Border Grid.Column="1" Stroke="#D6DEE8" StrokeThickness="1" BackgroundColor="#FFFFFF" Padding="16">
+                    <VerticalStackLayout Spacing="4">
+                        <Label Text="Checkups" TextColor="#64748B" />
+                        <Label x:Name="CheckupsCountLabel" Text="0" FontSize="32" FontAttributes="Bold" TextColor="#166534" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <Border Grid.Row="1" Grid.ColumnSpan="2" Stroke="#D6DEE8" StrokeThickness="1" BackgroundColor="#FFFFFF" Padding="16">
+                    <VerticalStackLayout Spacing="4">
+                        <Label Text="Sync" TextColor="#64748B" />
+                        <Label x:Name="SyncLabel" Text="No sync yet" FontSize="18" FontAttributes="Bold" TextColor="#334155" />
+                    </VerticalStackLayout>
+                </Border>
+            </Grid>
+
+            <Button Text="Refresh" Clicked="RefreshClicked" BackgroundColor="#075985" TextColor="#FFFFFF" />
+        </VerticalStackLayout>
+    </ScrollView>
+</ContentPage>

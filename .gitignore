@@ -23,6 +23,16 @@ wwwroot/uploads/
 *.bak
 
 node_modules/
+desktop/dist/
+desktop/node_modules/
+.android-sdk/
+mobile/**/bin/
+mobile/**/obj/
+*.apk
+*.aab
+*.msix
+*.nupkg
+*.exe
 playwright-report/
 
 *.db

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+    x:Class="MedRec.Mobile.Pages.CheckupsPage"
+    xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+    Title="Check Ups">
+    <Grid RowDefinitions="Auto,*" Padding="20" RowSpacing="16">
+        <VerticalStackLayout Spacing="10">
+            <Label Text="New checkup" FontSize="20" FontAttributes="Bold" TextColor="#0F172A" />
+            <Picker x:Name="PatientPicker" Title="Patient" ItemDisplayBinding="{Binding FullName}" />
+            <Entry x:Name="ComplaintEntry" Placeholder="Chief complaint" />
+            <Entry x:Name="DiagnosisEntry" Placeholder="Diagnosis" />
+            <Editor x:Name="NotesEditor" Placeholder="Notes" AutoSize="TextChanges" HeightRequest="88" />
+            <Button Text="Save checkup" Clicked="SaveCheckupClicked" BackgroundColor="#166534" TextColor="#FFFFFF" />
+        </VerticalStackLayout>
+
+        <CollectionView x:Name="CheckupsList" Grid.Row="1" SelectionMode="None">
+            <CollectionView.EmptyView>
+                <Label Text="No checkups yet." TextColor="#64748B" HorizontalOptions="Center" VerticalOptions="Center" />
+            </CollectionView.EmptyView>
+            <CollectionView.ItemTemplate>
+                <DataTemplate>
+                    <Border Stroke="#D6DEE8" StrokeThickness="1" BackgroundColor="#FFFFFF" Padding="12" Margin="0,0,0,10">
+                        <VerticalStackLayout Spacing="4">
+                            <Label Text="{Binding PatientName}" FontSize="17" FontAttributes="Bold" TextColor="#0F172A" />
+                            <Label Text="{Binding Diagnosis}" TextColor="#334155" />
+                            <Label Text="{Binding VisitDate, StringFormat='{0:g}'}" FontSize="12" TextColor="#64748B" />
+                            <Label Text="{Binding SyncStatus}" FontSize="12" TextColor="#B45309" />
+                        </VerticalStackLayout>
+                    </Border>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+    </Grid>
+</ContentPage>

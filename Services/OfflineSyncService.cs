@@ -11,18 +11,26 @@ public sealed class OfflineSyncService
     private readonly PostgresConnectionFactory _connections;
     private readonly EmrRepository _repository;
     private readonly IWebHostEnvironment _environment;
+    private readonly MedRecStorageOptions _options;
     private readonly SemaphoreSlim _schemaGate = new(1, 1);
     private bool _schemaReady;
 
-    public OfflineSyncService(PostgresConnectionFactory connections, EmrRepository repository, IWebHostEnvironment environment)
+    public OfflineSyncService(PostgresConnectionFactory connections, EmrRepository repository, IWebHostEnvironment environment, IConfiguration configuration)
     {
         _connections = connections;
         _repository = repository;
         _environment = environment;
+        _options = configuration.GetSection("MedRec").Get<MedRecStorageOptions>() ?? new MedRecStorageOptions();
     }
 
     public async Task EnsureSchemaAsync()
     {
+        if (_options.UseLocalStorage)
+        {
+            _schemaReady = true;
+            return;
+        }
+
         if (_schemaReady) return;
         await _schemaGate.WaitAsync();
         try
@@ -85,6 +93,14 @@ public sealed class OfflineSyncService
     public async Task<OfflineSyncResult> ApplyBatchAsync(OfflineSyncBatch batch, AppUser user)
     {
         await EnsureSchemaAsync();
+        if (_options.UseLocalStorage)
+        {
+            return new OfflineSyncResult
+            {
+                Snapshot = await _repository.GetOfflineSnapshotAsync(user)
+            };
+        }
+
         if (batch.Operations.Count > 200) throw new InvalidOperationException("A sync batch cannot exceed 200 operations.");
         var result = new OfflineSyncResult();
         await using var connection = _connections.CreateConnection();
