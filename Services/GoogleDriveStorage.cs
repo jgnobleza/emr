@@ -90,8 +90,38 @@ public sealed class GoogleDriveStorage
             throw new InvalidOperationException("Google Drive upload did not return a file id.");
         }
 
+        await MakeReadableByLinkAsync(uploaded.Id, cancellationToken);
         return $"/files/drive/{Uri.EscapeDataString(uploaded.Id)}/{Uri.EscapeDataString(fileName)}";
     }
+
+    public async Task MakeReadableByLinkAsync(string fileId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(fileId))
+        {
+            return;
+        }
+
+        try
+        {
+            var service = GetDriveService(GetOptions());
+            var permission = new Google.Apis.Drive.v3.Data.Permission
+            {
+                Type = "anyone",
+                Role = "reader"
+            };
+            var request = service.Permissions.Create(permission, fileId);
+            request.Fields = "id";
+            request.SupportsAllDrives = true;
+            await request.ExecuteAsync(cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Unable to make Google Drive file readable by link.");
+        }
+    }
+
+    public static string PublicDownloadUrl(string fileId) =>
+        $"https://drive.google.com/uc?export=download&id={Uri.EscapeDataString(fileId)}";
 
     private static string ContentTypeFromExtension(string extension)
     {

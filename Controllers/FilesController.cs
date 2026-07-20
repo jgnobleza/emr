@@ -21,10 +21,19 @@ public sealed class FilesController : Controller
             return NotFound();
         }
 
-        var download = await _googleDrive.DownloadAsync(fileId, cancellationToken);
+        DriveDownload? download;
+        try
+        {
+            download = await _googleDrive.DownloadAsync(fileId, cancellationToken);
+        }
+        catch
+        {
+            return Redirect(GoogleDriveStorage.PublicDownloadUrl(fileId));
+        }
+
         if (download is null)
         {
-            return NotFound();
+            return Redirect(GoogleDriveStorage.PublicDownloadUrl(fileId));
         }
 
         Response.Headers.CacheControl = "private, max-age=3600";

@@ -98,6 +98,10 @@ public sealed class CloudSyncService
         count += await UploadLocalFileColumnAsync(local, transaction, "lab_results", "file_url", "labs");
         count += await UploadLocalFileColumnAsync(local, transaction, "print_layouts", "logo_url", "logos");
         count += await UploadLocalFileColumnAsync(local, transaction, "users", "signature_url", "signatures");
+        await MakeDriveFileColumnReadableByLinkAsync(local, transaction, "patients", "photo_url");
+        await MakeDriveFileColumnReadableByLinkAsync(local, transaction, "lab_results", "file_url");
+        await MakeDriveFileColumnReadableByLinkAsync(local, transaction, "print_layouts", "logo_url");
+        await MakeDriveFileColumnReadableByLinkAsync(local, transaction, "users", "signature_url");
         return count;
     }
 
@@ -133,6 +137,41 @@ public sealed class CloudSyncService
         }
 
         return count;
+    }
+
+    private async Task MakeDriveFileColumnReadableByLinkAsync(SqliteConnection local, SqliteTransaction transaction, string table, string column)
+    {
+        var fileIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        await using (var read = new SqliteCommand($"SELECT {column} FROM {table} WHERE {column} LIKE '/files/drive/%';", local, transaction))
+        await using (var reader = await read.ExecuteReaderAsync())
+        {
+            while (await reader.ReadAsync())
+            {
+                var fileId = DriveFileIdFromUrl(Convert.ToString(reader[column]) ?? string.Empty);
+                if (!string.IsNullOrWhiteSpace(fileId))
+                {
+                    fileIds.Add(fileId);
+                }
+            }
+        }
+
+        foreach (var fileId in fileIds)
+        {
+            await _googleDrive.MakeReadableByLinkAsync(fileId);
+        }
+    }
+
+    private static string? DriveFileIdFromUrl(string url)
+    {
+        const string prefix = "/files/drive/";
+        if (!url.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var remaining = url[prefix.Length..];
+        var slash = remaining.IndexOf('/');
+        return slash > 0 ? Uri.UnescapeDataString(remaining[..slash]) : Uri.UnescapeDataString(remaining);
     }
 
     private string? ResolveLocalFilePath(string url)
