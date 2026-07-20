@@ -46,10 +46,14 @@ function startServer() {
       MedRec__StorageMode: "Local",
       MedRec__FileStorageProvider: fileStorageProvider,
       MedRec__LocalDataPath: localDataPath,
+      GoogleDrive__AuthMode: process.env.GoogleDrive__AuthMode || process.env.GOOGLE_DRIVE_AUTH_MODE || "",
       GoogleDrive__FolderId: process.env.GoogleDrive__FolderId || process.env.GOOGLE_DRIVE_FOLDER_ID || "",
       GoogleDrive__ServiceAccountJson: process.env.GoogleDrive__ServiceAccountJson || process.env.GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON || "",
       GoogleDrive__ServiceAccountJsonBase64: process.env.GoogleDrive__ServiceAccountJsonBase64 || process.env.GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON_BASE64 || "",
-      GoogleDrive__ServiceAccountJsonPath: process.env.GoogleDrive__ServiceAccountJsonPath || process.env.GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON_PATH || ""
+      GoogleDrive__ServiceAccountJsonPath: process.env.GoogleDrive__ServiceAccountJsonPath || process.env.GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON_PATH || "",
+      GoogleDrive__OAuthClientJson: process.env.GoogleDrive__OAuthClientJson || process.env.GOOGLE_DRIVE_OAUTH_CLIENT_JSON || "",
+      GoogleDrive__OAuthClientJsonBase64: process.env.GoogleDrive__OAuthClientJsonBase64 || process.env.GOOGLE_DRIVE_OAUTH_CLIENT_JSON_BASE64 || "",
+      GoogleDrive__OAuthClientJsonPath: process.env.GoogleDrive__OAuthClientJsonPath || process.env.GOOGLE_DRIVE_OAUTH_CLIENT_JSON_PATH || ""
     },
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true

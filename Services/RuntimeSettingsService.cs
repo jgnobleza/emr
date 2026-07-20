@@ -48,10 +48,14 @@ public sealed class RuntimeSettingsService
 
         var document = await ReadDocumentAsync();
         document.GoogleDrive[nameof(GoogleDriveStorageOptions.ApplicationName)] = string.IsNullOrWhiteSpace(form.ApplicationName) ? "MedRec" : form.ApplicationName.Trim();
+        document.GoogleDrive[nameof(GoogleDriveStorageOptions.AuthMode)] = form.AuthMode.Trim();
         document.GoogleDrive[nameof(GoogleDriveStorageOptions.FolderId)] = form.FolderId.Trim();
         document.GoogleDrive[nameof(GoogleDriveStorageOptions.ServiceAccountJson)] = form.ServiceAccountJson.Trim();
         document.GoogleDrive[nameof(GoogleDriveStorageOptions.ServiceAccountJsonBase64)] = form.ServiceAccountJsonBase64.Trim();
         document.GoogleDrive[nameof(GoogleDriveStorageOptions.ServiceAccountJsonPath)] = form.ServiceAccountJsonPath.Trim();
+        document.GoogleDrive[nameof(GoogleDriveStorageOptions.OAuthClientJson)] = form.OAuthClientJson.Trim();
+        document.GoogleDrive[nameof(GoogleDriveStorageOptions.OAuthClientJsonBase64)] = form.OAuthClientJsonBase64.Trim();
+        document.GoogleDrive[nameof(GoogleDriveStorageOptions.OAuthClientJsonPath)] = form.OAuthClientJsonPath.Trim();
         document.MedRec[nameof(MedRecStorageOptions.FileStorageProvider)] = "GoogleDrive";
 
         await WriteDocumentAsync(document);

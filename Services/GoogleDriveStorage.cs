@@ -1,6 +1,8 @@
 using Google.Apis.Auth.OAuth2;
 using Google.Apis.Drive.v3;
+using Google.Apis.Http;
 using Google.Apis.Services;
+using Google.Apis.Util.Store;
 using medrec.Data;
 using System.Text;
 
@@ -10,13 +12,15 @@ public sealed class GoogleDriveStorage
 {
     private readonly IConfiguration _configuration;
     private readonly ILogger<GoogleDriveStorage> _logger;
+    private readonly LocalAppPaths _localPaths;
     private DriveService? _drive;
     private string? _driveCacheKey;
 
-    public GoogleDriveStorage(IConfiguration configuration, ILogger<GoogleDriveStorage> logger)
+    public GoogleDriveStorage(IConfiguration configuration, ILogger<GoogleDriveStorage> logger, LocalAppPaths localPaths)
     {
         _configuration = configuration;
         _logger = logger;
+        _localPaths = localPaths;
     }
 
     public bool IsConfigured
@@ -24,7 +28,8 @@ public sealed class GoogleDriveStorage
         get
         {
             var options = GetOptions();
-            return !string.IsNullOrWhiteSpace(options.FolderId) && TryReadCredentialJson(options) is not null;
+            return !string.IsNullOrWhiteSpace(options.FolderId)
+                && (options.UseOAuth ? TryReadOAuthClientJson(options) is not null : TryReadServiceAccountJson(options) is not null);
         }
     }
 
@@ -123,8 +128,8 @@ public sealed class GoogleDriveStorage
 
     private DriveService GetDriveService(GoogleDriveStorageOptions options)
     {
-        var credentialJson = TryReadCredentialJson(options);
-        var cacheKey = $"{options.ApplicationName}|{options.FolderId}|{options.ServiceAccountJsonPath}|{options.ServiceAccountJsonBase64}|{options.ServiceAccountJson}";
+        var credentialJson = options.UseOAuth ? TryReadOAuthClientJson(options) : TryReadServiceAccountJson(options);
+        var cacheKey = $"{options.ApplicationName}|{options.AuthMode}|{options.FolderId}|{options.ServiceAccountJsonPath}|{options.ServiceAccountJsonBase64}|{options.ServiceAccountJson}|{options.OAuthClientJsonPath}|{options.OAuthClientJsonBase64}|{options.OAuthClientJson}";
         if (_drive is not null && string.Equals(_driveCacheKey, cacheKey, StringComparison.Ordinal))
         {
             return _drive;
@@ -136,10 +141,17 @@ public sealed class GoogleDriveStorage
         }
 
         using var credentialStream = new MemoryStream(Encoding.UTF8.GetBytes(credentialJson));
-        var credential = CredentialFactory
-            .FromStream<ServiceAccountCredential>(credentialStream)
-            .ToGoogleCredential()
-            .CreateScoped(DriveService.Scope.Drive);
+        IConfigurableHttpClientInitializer credential = options.UseOAuth
+            ? GoogleWebAuthorizationBroker.AuthorizeAsync(
+                GoogleClientSecrets.FromStream(credentialStream).Secrets,
+                [DriveService.Scope.Drive],
+                "medrec-user",
+                CancellationToken.None,
+                new FileDataStore(_localPaths.GoogleDriveTokenRoot, true)).GetAwaiter().GetResult()
+            : CredentialFactory
+                .FromStream<ServiceAccountCredential>(credentialStream)
+                .ToGoogleCredential()
+                .CreateScoped(DriveService.Scope.Drive);
 
         _drive = new DriveService(new BaseClientService.Initializer
         {
@@ -165,7 +177,7 @@ public sealed class GoogleDriveStorage
         return "Google Drive upload failed.";
     }
 
-    private string? TryReadCredentialJson(GoogleDriveStorageOptions options)
+    private string? TryReadServiceAccountJson(GoogleDriveStorageOptions options)
     {
         if (!string.IsNullOrWhiteSpace(options.ServiceAccountJson))
         {
@@ -188,6 +200,34 @@ public sealed class GoogleDriveStorage
         if (!string.IsNullOrWhiteSpace(options.ServiceAccountJsonPath) && File.Exists(options.ServiceAccountJsonPath))
         {
             return File.ReadAllText(options.ServiceAccountJsonPath);
+        }
+
+        return null;
+    }
+
+    private string? TryReadOAuthClientJson(GoogleDriveStorageOptions options)
+    {
+        if (!string.IsNullOrWhiteSpace(options.OAuthClientJson))
+        {
+            return options.OAuthClientJson;
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.OAuthClientJsonBase64))
+        {
+            try
+            {
+                return Encoding.UTF8.GetString(Convert.FromBase64String(options.OAuthClientJsonBase64));
+            }
+            catch (FormatException ex)
+            {
+                _logger.LogWarning(ex, "Google Drive OAuth client JSON base64 is invalid.");
+                return null;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(options.OAuthClientJsonPath) && File.Exists(options.OAuthClientJsonPath))
+        {
+            return File.ReadAllText(options.OAuthClientJsonPath);
         }
 
         return null;

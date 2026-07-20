@@ -2,6 +2,7 @@ using System.Text;
 using Google.Apis.Auth.OAuth2;
 using Google.Apis.Drive.v3;
 using Google.Apis.Services;
+using Google.Apis.Util.Store;
 using medrec.Data;
 using medrec.Security;
 using medrec.Services;
@@ -19,19 +20,22 @@ public sealed class AdminController : Controller
     private readonly UploadStorage _uploads;
     private readonly PostgresConnectionFactory _postgresConnections;
     private readonly RuntimeSettingsService _runtimeSettings;
+    private readonly LocalAppPaths _localPaths;
 
     public AdminController(
         EmrRepository repository,
         AccountService accounts,
         UploadStorage uploads,
         PostgresConnectionFactory postgresConnections,
-        RuntimeSettingsService runtimeSettings)
+        RuntimeSettingsService runtimeSettings,
+        LocalAppPaths localPaths)
     {
         _repository = repository;
         _accounts = accounts;
         _uploads = uploads;
         _postgresConnections = postgresConnections;
         _runtimeSettings = runtimeSettings;
+        _localPaths = localPaths;
     }
 
     public async Task<IActionResult> Index()
@@ -297,10 +301,14 @@ public sealed class AdminController : Controller
             GoogleDriveSettings = googleDriveSettings ?? new GoogleDriveSettingsFormModel
             {
                 ApplicationName = HttpContext.RequestServices.GetRequiredService<IConfiguration>()["GoogleDrive:ApplicationName"] ?? "MedRec",
+                AuthMode = HttpContext.RequestServices.GetRequiredService<IConfiguration>()["GoogleDrive:AuthMode"] ?? "ServiceAccount",
                 FolderId = HttpContext.RequestServices.GetRequiredService<IConfiguration>()["GoogleDrive:FolderId"] ?? string.Empty,
                 ServiceAccountJson = HttpContext.RequestServices.GetRequiredService<IConfiguration>()["GoogleDrive:ServiceAccountJson"] ?? string.Empty,
                 ServiceAccountJsonBase64 = HttpContext.RequestServices.GetRequiredService<IConfiguration>()["GoogleDrive:ServiceAccountJsonBase64"] ?? string.Empty,
-                ServiceAccountJsonPath = HttpContext.RequestServices.GetRequiredService<IConfiguration>()["GoogleDrive:ServiceAccountJsonPath"] ?? string.Empty
+                ServiceAccountJsonPath = HttpContext.RequestServices.GetRequiredService<IConfiguration>()["GoogleDrive:ServiceAccountJsonPath"] ?? string.Empty,
+                OAuthClientJson = HttpContext.RequestServices.GetRequiredService<IConfiguration>()["GoogleDrive:OAuthClientJson"] ?? string.Empty,
+                OAuthClientJsonBase64 = HttpContext.RequestServices.GetRequiredService<IConfiguration>()["GoogleDrive:OAuthClientJsonBase64"] ?? string.Empty,
+                OAuthClientJsonPath = HttpContext.RequestServices.GetRequiredService<IConfiguration>()["GoogleDrive:OAuthClientJsonPath"] ?? string.Empty
             },
             DataNotice = dashboard.DataNotice
         };
@@ -309,14 +317,37 @@ public sealed class AdminController : Controller
     private bool TryNormalizeGoogleDriveSettings(GoogleDriveSettingsFormModel form)
     {
         form.ApplicationName = string.IsNullOrWhiteSpace(form.ApplicationName) ? "MedRec" : form.ApplicationName.Trim();
+        form.AuthMode = form.AuthMode.Equals("OAuth", StringComparison.OrdinalIgnoreCase) ? "OAuth" : "ServiceAccount";
         form.FolderId = form.FolderId.Trim();
         form.ServiceAccountJson = form.ServiceAccountJson.Trim();
         form.ServiceAccountJsonBase64 = form.ServiceAccountJsonBase64.Trim();
         form.ServiceAccountJsonPath = form.ServiceAccountJsonPath.Trim();
+        form.OAuthClientJson = form.OAuthClientJson.Trim();
+        form.OAuthClientJsonBase64 = form.OAuthClientJsonBase64.Trim();
+        form.OAuthClientJsonPath = form.OAuthClientJsonPath.Trim();
 
         if (!TryValidateModel(form, nameof(AdminPageViewModel.GoogleDriveSettings)))
         {
             return false;
+        }
+
+        if (form.UseOAuth)
+        {
+            if (string.IsNullOrWhiteSpace(form.OAuthClientJson)
+                && string.IsNullOrWhiteSpace(form.OAuthClientJsonBase64)
+                && string.IsNullOrWhiteSpace(form.OAuthClientJsonPath))
+            {
+                ModelState.AddModelError("GoogleDriveSettings.OAuthClientJson", "Enter OAuth client JSON, base64 JSON, or a JSON file path.");
+                return false;
+            }
+
+            if (!string.IsNullOrWhiteSpace(form.OAuthClientJsonPath) && !System.IO.File.Exists(form.OAuthClientJsonPath))
+            {
+                ModelState.AddModelError("GoogleDriveSettings.OAuthClientJsonPath", "The OAuth client JSON file path was not found.");
+                return false;
+            }
+
+            return true;
         }
 
         if (string.IsNullOrWhiteSpace(form.ServiceAccountJson)
@@ -336,16 +367,11 @@ public sealed class AdminController : Controller
         return true;
     }
 
-    private static async Task<(bool Success, string Message)> TestGoogleDriveSettingsAsync(GoogleDriveSettingsFormModel form)
+    private async Task<(bool Success, string Message)> TestGoogleDriveSettingsAsync(GoogleDriveSettingsFormModel form)
     {
         try
         {
-            var credentialJson = ResolveGoogleCredentialJson(form);
-            using var credentialStream = new MemoryStream(Encoding.UTF8.GetBytes(credentialJson));
-            var credential = CredentialFactory
-                .FromStream<ServiceAccountCredential>(credentialStream)
-                .ToGoogleCredential()
-                .CreateScoped(DriveService.Scope.Drive);
+            var credential = await ResolveGoogleCredentialAsync(form);
 
             using var drive = new DriveService(new BaseClientService.Initializer
             {
@@ -370,7 +396,27 @@ public sealed class AdminController : Controller
         }
     }
 
-    private static string ResolveGoogleCredentialJson(GoogleDriveSettingsFormModel form)
+    private async Task<Google.Apis.Http.IConfigurableHttpClientInitializer> ResolveGoogleCredentialAsync(GoogleDriveSettingsFormModel form)
+    {
+        if (form.UseOAuth)
+        {
+            using var credentialStream = new MemoryStream(Encoding.UTF8.GetBytes(ResolveOAuthClientJson(form)));
+            return await GoogleWebAuthorizationBroker.AuthorizeAsync(
+                GoogleClientSecrets.FromStream(credentialStream).Secrets,
+                [DriveService.Scope.Drive],
+                "medrec-user",
+                CancellationToken.None,
+                new FileDataStore(_localPaths.GoogleDriveTokenRoot, true));
+        }
+
+        using var serviceAccountStream = new MemoryStream(Encoding.UTF8.GetBytes(ResolveServiceAccountJson(form)));
+        return CredentialFactory
+            .FromStream<ServiceAccountCredential>(serviceAccountStream)
+            .ToGoogleCredential()
+            .CreateScoped(DriveService.Scope.Drive);
+    }
+
+    private static string ResolveServiceAccountJson(GoogleDriveSettingsFormModel form)
     {
         if (!string.IsNullOrWhiteSpace(form.ServiceAccountJson))
         {
@@ -383,6 +429,21 @@ public sealed class AdminController : Controller
         }
 
         return System.IO.File.ReadAllText(form.ServiceAccountJsonPath);
+    }
+
+    private static string ResolveOAuthClientJson(GoogleDriveSettingsFormModel form)
+    {
+        if (!string.IsNullOrWhiteSpace(form.OAuthClientJson))
+        {
+            return form.OAuthClientJson;
+        }
+
+        if (!string.IsNullOrWhiteSpace(form.OAuthClientJsonBase64))
+        {
+            return Encoding.UTF8.GetString(Convert.FromBase64String(form.OAuthClientJsonBase64));
+        }
+
+        return System.IO.File.ReadAllText(form.OAuthClientJsonPath);
     }
 
     private static string ReadableError(Exception ex)

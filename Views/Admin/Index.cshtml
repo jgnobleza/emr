@@ -156,10 +156,34 @@
                 <span asp-validation-for="GoogleDriveSettings.ApplicationName" class="text-danger"></span>
             </div>
             <div>
+                <label asp-for="GoogleDriveSettings.AuthMode" class="form-label"></label>
+                <select asp-for="GoogleDriveSettings.AuthMode" class="form-select">
+                    <option value="OAuth">Personal Google account OAuth</option>
+                    <option value="ServiceAccount">Service account / Shared Drive</option>
+                </select>
+                <span asp-validation-for="GoogleDriveSettings.AuthMode" class="text-danger"></span>
+                <p class="text-muted mt-2 mb-0">Use OAuth for a personal Google account. Use service account only with a Google Workspace Shared Drive.</p>
+            </div>
+            <div>
                 <label asp-for="GoogleDriveSettings.FolderId" class="form-label"></label>
                 <input asp-for="GoogleDriveSettings.FolderId" class="form-control" autocomplete="off" placeholder="Google Drive folder ID">
                 <span asp-validation-for="GoogleDriveSettings.FolderId" class="text-danger"></span>
-                <p class="text-muted mt-2 mb-0">Use a folder inside a Google Workspace Shared Drive, then share the Shared Drive or folder with the service account email from your JSON credentials.</p>
+                <p class="text-muted mt-2 mb-0">For OAuth, use a folder in your personal Google Drive. For service account, use a folder inside a Google Workspace Shared Drive.</p>
+            </div>
+            <div>
+                <label asp-for="GoogleDriveSettings.OAuthClientJson" class="form-label"></label>
+                <textarea asp-for="GoogleDriveSettings.OAuthClientJson" class="form-control" rows="5" spellcheck="false" autocomplete="off" placeholder="{ &quot;installed&quot;: { &quot;client_id&quot;: ... } }"></textarea>
+                <span asp-validation-for="GoogleDriveSettings.OAuthClientJson" class="text-danger"></span>
+            </div>
+            <div>
+                <label asp-for="GoogleDriveSettings.OAuthClientJsonBase64" class="form-label"></label>
+                <textarea asp-for="GoogleDriveSettings.OAuthClientJsonBase64" class="form-control" rows="3" spellcheck="false" autocomplete="off"></textarea>
+                <span asp-validation-for="GoogleDriveSettings.OAuthClientJsonBase64" class="text-danger"></span>
+            </div>
+            <div>
+                <label asp-for="GoogleDriveSettings.OAuthClientJsonPath" class="form-label"></label>
+                <input asp-for="GoogleDriveSettings.OAuthClientJsonPath" class="form-control" autocomplete="off" placeholder="C:\path\oauth-client.json">
+                <span asp-validation-for="GoogleDriveSettings.OAuthClientJsonPath" class="text-danger"></span>
             </div>
             <div>
                 <label asp-for="GoogleDriveSettings.ServiceAccountJson" class="form-label"></label>
