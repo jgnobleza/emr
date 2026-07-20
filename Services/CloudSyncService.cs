@@ -68,6 +68,7 @@ public sealed class CloudSyncService
         pulled += await PullPrescriptionsAsync(local, localTransaction, cloud, cloudTransaction);
         pulled += await PullPrintLayoutsAsync(local, localTransaction, cloud, cloudTransaction);
         var fileDownloads = await DownloadDriveFilesToLocalCacheAsync(local, localTransaction);
+        fileDownloads += await DownloadWebUploadsToLocalFilesAsync(local, localTransaction);
 
         await ExecuteLocalAsync(local, localTransaction, "UPDATE sync_queue SET status = 'Synced', synced_at = CURRENT_TIMESTAMP, last_error = NULL WHERE status = 'Pending';");
         await ExecuteLocalAsync(
@@ -297,6 +298,95 @@ public sealed class CloudSyncService
     }
 
     private sealed record DriveFileReference(string FileId, string FileName);
+
+    private async Task<int> DownloadWebUploadsToLocalFilesAsync(SqliteConnection local, SqliteTransaction transaction)
+    {
+        var options = _configuration.GetSection("MedRec").Get<MedRecStorageOptions>() ?? new MedRecStorageOptions();
+        if (string.IsNullOrWhiteSpace(options.PublicBaseUrl))
+        {
+            return 0;
+        }
+
+        var count = 0;
+        count += await DownloadWebUploadColumnAsync(local, transaction, "patients", "photo_url", "patients", options.PublicBaseUrl);
+        count += await DownloadWebUploadColumnAsync(local, transaction, "lab_results", "file_url", "labs", options.PublicBaseUrl);
+        count += await DownloadWebUploadColumnAsync(local, transaction, "print_layouts", "logo_url", "logos", options.PublicBaseUrl);
+        count += await DownloadWebUploadColumnAsync(local, transaction, "users", "signature_url", "signatures", options.PublicBaseUrl);
+        return count;
+    }
+
+    private async Task<int> DownloadWebUploadColumnAsync(SqliteConnection local, SqliteTransaction transaction, string table, string column, string folder, string publicBaseUrl)
+    {
+        var rows = new List<(int Id, string Url)>();
+        await using (var read = new SqliteCommand($"SELECT id, {column} FROM {table} WHERE {column} LIKE '/uploads/%';", local, transaction))
+        await using (var reader = await read.ExecuteReaderAsync())
+        {
+            while (await reader.ReadAsync())
+            {
+                rows.Add((Convert.ToInt32(reader["id"]), Convert.ToString(reader[column]) ?? string.Empty));
+            }
+        }
+
+        var count = 0;
+        foreach (var row in rows)
+        {
+            var localUrl = await DownloadWebUploadToLocalFileAsync(row.Url, folder, publicBaseUrl);
+            if (localUrl is null)
+            {
+                continue;
+            }
+
+            await ExecuteLocalAsync(
+                local,
+                transaction,
+                $"UPDATE {table} SET {column} = @url, sync_status = 'Pending', updated_at = CURRENT_TIMESTAMP WHERE id = @id;",
+                ("@url", localUrl),
+                ("@id", row.Id));
+            count++;
+        }
+
+        return count;
+    }
+
+    private async Task<string?> DownloadWebUploadToLocalFileAsync(string url, string folder, string publicBaseUrl)
+    {
+        if (!url.StartsWith("/uploads/", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        if (!Uri.TryCreate(publicBaseUrl.TrimEnd('/') + url, UriKind.Absolute, out var sourceUri))
+        {
+            return null;
+        }
+
+        try
+        {
+            _localPaths.EnsureCreated();
+            var fileName = SafeFileName(Path.GetFileName(sourceUri.LocalPath));
+            if (string.IsNullOrWhiteSpace(Path.GetExtension(fileName)))
+            {
+                fileName += ".bin";
+            }
+
+            var targetFolder = _localPaths.FileFolder(folder);
+            Directory.CreateDirectory(targetFolder);
+            var targetPath = Path.Combine(targetFolder, fileName);
+            if (!File.Exists(targetPath) || new FileInfo(targetPath).Length == 0)
+            {
+                var client = _httpClientFactory.CreateClient();
+                await using var stream = await client.GetStreamAsync(sourceUri);
+                await using var output = File.Create(targetPath);
+                await stream.CopyToAsync(output);
+            }
+
+            return $"/local-files/{folder}/{Uri.EscapeDataString(fileName)}";
+        }
+        catch
+        {
+            return null;
+        }
+    }
 
     private string? ResolveLocalFilePath(string url)
     {

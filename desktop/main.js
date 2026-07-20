@@ -46,6 +46,7 @@ function startServer() {
       MedRec__StorageMode: "Local",
       MedRec__FileStorageProvider: fileStorageProvider,
       MedRec__LocalDataPath: localDataPath,
+      MedRec__PublicBaseUrl: process.env.MedRec__PublicBaseUrl || process.env.MEDREC_PUBLIC_BASE_URL || "https://emr-vwwl.onrender.com",
       GoogleDrive__AuthMode: process.env.GoogleDrive__AuthMode || process.env.GOOGLE_DRIVE_AUTH_MODE || "",
       GoogleDrive__FolderId: process.env.GoogleDrive__FolderId || process.env.GOOGLE_DRIVE_FOLDER_ID || "",
       GoogleDrive__ServiceAccountJson: process.env.GoogleDrive__ServiceAccountJson || process.env.GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON || "",
