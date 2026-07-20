@@ -69,6 +69,14 @@ public sealed class CloudSyncService
         pulled += await PullPrintLayoutsAsync(local, localTransaction, cloud, cloudTransaction);
         var fileDownloads = await DownloadDriveFilesToLocalCacheAsync(local, localTransaction);
         fileDownloads += await DownloadWebUploadsToLocalFilesAsync(local, localTransaction);
+        if (await HasLocalFileReferencesAsync(local, localTransaction))
+        {
+            fileUploads += await UploadLocalFilesToGoogleDriveAsync(local, localTransaction);
+            pushed += await PushPatientsAsync(local, localTransaction, cloud, cloudTransaction);
+            pushed += await PushLabResultsAsync(local, localTransaction, cloud, cloudTransaction);
+            pushed += await PushPrintLayoutsAsync(local, localTransaction, cloud, cloudTransaction);
+            fileDownloads += await DownloadDriveFilesToLocalCacheAsync(local, localTransaction);
+        }
 
         await ExecuteLocalAsync(local, localTransaction, "UPDATE sync_queue SET status = 'Synced', synced_at = CURRENT_TIMESTAMP, last_error = NULL WHERE status = 'Pending';");
         await ExecuteLocalAsync(
@@ -87,12 +95,7 @@ public sealed class CloudSyncService
 
     private async Task<int> UploadLocalFilesToGoogleDriveAsync(SqliteConnection local, SqliteTransaction transaction)
     {
-        var localFileCount = 0;
-        localFileCount += await CountLocalFileColumnAsync(local, transaction, "patients", "photo_url");
-        localFileCount += await CountLocalFileColumnAsync(local, transaction, "lab_results", "file_url");
-        localFileCount += await CountLocalFileColumnAsync(local, transaction, "print_layouts", "logo_url");
-        localFileCount += await CountLocalFileColumnAsync(local, transaction, "users", "signature_url");
-        if (localFileCount == 0)
+        if (!await HasLocalFileReferencesAsync(local, transaction))
         {
             return 0;
         }
@@ -112,6 +115,14 @@ public sealed class CloudSyncService
         await MakeDriveFileColumnReadableByLinkAsync(local, transaction, "print_layouts", "logo_url");
         await MakeDriveFileColumnReadableByLinkAsync(local, transaction, "users", "signature_url");
         return count;
+    }
+
+    private static async Task<bool> HasLocalFileReferencesAsync(SqliteConnection local, SqliteTransaction transaction)
+    {
+        return await CountLocalFileColumnAsync(local, transaction, "patients", "photo_url") > 0
+            || await CountLocalFileColumnAsync(local, transaction, "lab_results", "file_url") > 0
+            || await CountLocalFileColumnAsync(local, transaction, "print_layouts", "logo_url") > 0
+            || await CountLocalFileColumnAsync(local, transaction, "users", "signature_url") > 0;
     }
 
     private static async Task<int> CountLocalFileColumnAsync(SqliteConnection local, SqliteTransaction transaction, string table, string column)
@@ -142,6 +153,7 @@ public sealed class CloudSyncService
             }
 
             var driveUrl = await _googleDrive.UploadFileAsync(path, folder);
+            CacheLocalFileForDriveUrl(path, driveUrl);
             await ExecuteLocalAsync(
                 local,
                 transaction,
@@ -152,6 +164,23 @@ public sealed class CloudSyncService
         }
 
         return count;
+    }
+
+    private void CacheLocalFileForDriveUrl(string sourcePath, string driveUrl)
+    {
+        var fileId = DriveFileIdFromUrl(driveUrl);
+        if (string.IsNullOrWhiteSpace(fileId) || !File.Exists(sourcePath))
+        {
+            return;
+        }
+
+        var cacheFolder = Path.Combine(_localPaths.GoogleDriveCacheRoot, SafePathSegment(fileId));
+        Directory.CreateDirectory(cacheFolder);
+        var cachePath = Path.Combine(cacheFolder, SafeFileName(Path.GetFileName(sourcePath)));
+        if (!File.Exists(cachePath) || new FileInfo(cachePath).Length == 0)
+        {
+            File.Copy(sourcePath, cachePath, overwrite: true);
+        }
     }
 
     private async Task MakeDriveFileColumnReadableByLinkAsync(SqliteConnection local, SqliteTransaction transaction, string table, string column)
