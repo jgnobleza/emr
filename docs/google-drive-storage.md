@@ -4,9 +4,9 @@ MedRec can store uploaded patient photos, lab PDFs/images, signatures, logos, an
 
 ## Setup
 
-1. Create or choose a Google Drive folder for MedRec uploads.
+1. Create or choose a folder inside a Google Workspace Shared Drive for MedRec uploads.
 2. Create a Google Cloud service account with Drive API access.
-3. Share the Drive folder with the service account email as Editor.
+3. Share the Shared Drive or Drive folder with the service account email as Contributor, Content manager, or Manager.
 4. Set these environment variables before launching the desktop app:
 
 ```powershell
@@ -22,6 +22,8 @@ $env:GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON_BASE64="base64-of-service-account-json"
 ```
 
 The desktop shell automatically switches `MedRec:FileStorageProvider` to `GoogleDrive` when `GOOGLE_DRIVE_FOLDER_ID` is present.
+
+Service accounts cannot upload files into their own personal Drive storage because they do not have storage quota. A normal "My Drive" folder shared with the service account can still fail with a quota error. Use a Google Workspace Shared Drive, or use a future user OAuth flow instead of a service account.
 
 ## Behavior
 

@@ -72,10 +72,11 @@ public sealed class GoogleDriveStorage
         };
         var request = service.Files.Create(metadata, stream, string.IsNullOrWhiteSpace(contentType) ? "application/octet-stream" : contentType);
         request.Fields = "id,name,mimeType,size";
+        request.SupportsAllDrives = true;
         var result = await request.UploadAsync(cancellationToken);
         if (result.Exception is not null)
         {
-            throw new InvalidOperationException("Google Drive upload failed.", result.Exception);
+            throw new InvalidOperationException(ReadableUploadError(result.Exception), result.Exception);
         }
 
         var uploaded = request.ResponseBody;
@@ -105,10 +106,12 @@ public sealed class GoogleDriveStorage
         var service = GetDriveService(GetOptions());
         var metadataRequest = service.Files.Get(fileId);
         metadataRequest.Fields = "id,name,mimeType,size";
+        metadataRequest.SupportsAllDrives = true;
         var metadata = await metadataRequest.ExecuteAsync(cancellationToken);
 
         var stream = new MemoryStream();
         var downloadRequest = service.Files.Get(fileId);
+        downloadRequest.SupportsAllDrives = true;
         await downloadRequest.DownloadAsync(stream, cancellationToken);
         stream.Position = 0;
 
@@ -150,6 +153,17 @@ public sealed class GoogleDriveStorage
 
     private GoogleDriveStorageOptions GetOptions() =>
         _configuration.GetSection("GoogleDrive").Get<GoogleDriveStorageOptions>() ?? new GoogleDriveStorageOptions();
+
+    private static string ReadableUploadError(Exception exception)
+    {
+        var message = exception.Message;
+        if (message.Contains("Service Accounts do not have storage quota", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Google Drive upload failed because the service account has no personal storage quota. Use a folder inside a Google Workspace Shared Drive and share that Shared Drive/folder with the service account as Contributor or Content manager, then save that folder ID in Admin settings.";
+        }
+
+        return "Google Drive upload failed.";
+    }
 
     private string? TryReadCredentialJson(GoogleDriveStorageOptions options)
     {
