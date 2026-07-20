@@ -39,6 +39,8 @@ public sealed class LocalAppPaths
 
     public string GoogleDriveTokenRoot => Path.Combine(DataRoot, "google-drive-token");
 
+    public string GoogleDriveCacheRoot => Path.Combine(DataRoot, "google-drive-cache");
+
     public string FileFolder(string folder) => Path.Combine(FilesRoot, folder);
 
     public void EnsureCreated()
@@ -46,6 +48,7 @@ public sealed class LocalAppPaths
         Directory.CreateDirectory(DataRoot);
         Directory.CreateDirectory(FilesRoot);
         Directory.CreateDirectory(GoogleDriveTokenRoot);
+        Directory.CreateDirectory(GoogleDriveCacheRoot);
         foreach (var folder in new[] { "patients", "labs", "signatures", "logos", "layout-images" })
         {
             Directory.CreateDirectory(FileFolder(folder));

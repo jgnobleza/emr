@@ -13,6 +13,7 @@ public sealed class CloudSyncService
     private readonly LocalAppPaths _localPaths;
     private readonly GoogleDriveStorage _googleDrive;
     private readonly RuntimeSettingsService _runtimeSettings;
+    private readonly IHttpClientFactory _httpClientFactory;
 
     public CloudSyncService(
         SqliteConnectionFactory sqliteConnections,
@@ -21,7 +22,8 @@ public sealed class CloudSyncService
         IConfiguration configuration,
         LocalAppPaths localPaths,
         GoogleDriveStorage googleDrive,
-        RuntimeSettingsService runtimeSettings)
+        RuntimeSettingsService runtimeSettings,
+        IHttpClientFactory httpClientFactory)
     {
         _sqliteConnections = sqliteConnections;
         _postgresConnections = postgresConnections;
@@ -30,6 +32,7 @@ public sealed class CloudSyncService
         _localPaths = localPaths;
         _googleDrive = googleDrive;
         _runtimeSettings = runtimeSettings;
+        _httpClientFactory = httpClientFactory;
     }
 
     public async Task<int> SyncAsync()
@@ -64,6 +67,7 @@ public sealed class CloudSyncService
         pulled += await PullLabResultsAsync(local, localTransaction, cloud, cloudTransaction);
         pulled += await PullPrescriptionsAsync(local, localTransaction, cloud, cloudTransaction);
         pulled += await PullPrintLayoutsAsync(local, localTransaction, cloud, cloudTransaction);
+        var fileDownloads = await DownloadDriveFilesToLocalCacheAsync(local, localTransaction);
 
         await ExecuteLocalAsync(local, localTransaction, "UPDATE sync_queue SET status = 'Synced', synced_at = CURRENT_TIMESTAMP, last_error = NULL WHERE status = 'Pending';");
         await ExecuteLocalAsync(
@@ -71,8 +75,8 @@ public sealed class CloudSyncService
             localTransaction,
             "INSERT INTO sync_runs (sync_type, finished_at, records_uploaded, files_uploaded, status, message) VALUES ('Manual', CURRENT_TIMESTAMP, @count, @files, 'Completed', @message);",
             ("@count", pushed),
-            ("@files", fileUploads),
-            ("@message", $"Cloud sync completed. Pushed {pushed}; pulled {pulled}; uploaded {fileUploads} file(s)."));
+            ("@files", fileUploads + fileDownloads),
+            ("@message", $"Cloud sync completed. Pushed {pushed}; pulled {pulled}; uploaded {fileUploads} file(s); downloaded {fileDownloads} file(s)."));
 
         await cloudTransaction.CommitAsync();
         await localTransaction.CommitAsync();
@@ -82,15 +86,19 @@ public sealed class CloudSyncService
 
     private async Task<int> UploadLocalFilesToGoogleDriveAsync(SqliteConnection local, SqliteTransaction transaction)
     {
-        var options = _configuration.GetSection("MedRec").Get<MedRecStorageOptions>() ?? new MedRecStorageOptions();
-        if (!options.UseGoogleDriveStorage)
+        var localFileCount = 0;
+        localFileCount += await CountLocalFileColumnAsync(local, transaction, "patients", "photo_url");
+        localFileCount += await CountLocalFileColumnAsync(local, transaction, "lab_results", "file_url");
+        localFileCount += await CountLocalFileColumnAsync(local, transaction, "print_layouts", "logo_url");
+        localFileCount += await CountLocalFileColumnAsync(local, transaction, "users", "signature_url");
+        if (localFileCount == 0)
         {
             return 0;
         }
 
         if (!_googleDrive.IsConfigured)
         {
-            throw new InvalidOperationException("Google Drive file sync is enabled, but Google Drive is not configured. Add and test Google Drive settings in Administration.");
+            throw new InvalidOperationException("Cloud sync found files saved only on this computer. Configure and test Google Drive in Administration, then run Manual Sync again so files can upload before records are sent online.");
         }
 
         var count = 0;
@@ -103,6 +111,12 @@ public sealed class CloudSyncService
         await MakeDriveFileColumnReadableByLinkAsync(local, transaction, "print_layouts", "logo_url");
         await MakeDriveFileColumnReadableByLinkAsync(local, transaction, "users", "signature_url");
         return count;
+    }
+
+    private static async Task<int> CountLocalFileColumnAsync(SqliteConnection local, SqliteTransaction transaction, string table, string column)
+    {
+        await using var command = new SqliteCommand($"SELECT COUNT(*) FROM {table} WHERE {column} LIKE '/local-files/%';", local, transaction);
+        return Convert.ToInt32(await command.ExecuteScalarAsync());
     }
 
     private async Task<int> UploadLocalFileColumnAsync(SqliteConnection local, SqliteTransaction transaction, string table, string column, string folder)
@@ -173,6 +187,116 @@ public sealed class CloudSyncService
         var slash = remaining.IndexOf('/');
         return slash > 0 ? Uri.UnescapeDataString(remaining[..slash]) : Uri.UnescapeDataString(remaining);
     }
+
+    private async Task<int> DownloadDriveFilesToLocalCacheAsync(SqliteConnection local, SqliteTransaction transaction)
+    {
+        var files = new Dictionary<string, DriveFileReference>(StringComparer.OrdinalIgnoreCase);
+        await AddDriveFileReferencesAsync(local, transaction, files, "patients", "photo_url");
+        await AddDriveFileReferencesAsync(local, transaction, files, "lab_results", "file_url");
+        await AddDriveFileReferencesAsync(local, transaction, files, "print_layouts", "logo_url");
+        await AddDriveFileReferencesAsync(local, transaction, files, "users", "signature_url");
+
+        var count = 0;
+        foreach (var file in files.Values)
+        {
+            if (await DownloadDriveFileToCacheAsync(file))
+            {
+                count++;
+            }
+        }
+
+        return count;
+    }
+
+    private static async Task AddDriveFileReferencesAsync(SqliteConnection local, SqliteTransaction transaction, IDictionary<string, DriveFileReference> files, string table, string column)
+    {
+        await using var read = new SqliteCommand($"SELECT {column} FROM {table} WHERE {column} LIKE '/files/drive/%';", local, transaction);
+        await using var reader = await read.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            var url = Convert.ToString(reader[column]) ?? string.Empty;
+            var fileId = DriveFileIdFromUrl(url);
+            if (string.IsNullOrWhiteSpace(fileId) || files.ContainsKey(fileId))
+            {
+                continue;
+            }
+
+            files[fileId] = new DriveFileReference(fileId, DriveFileNameFromUrl(url));
+        }
+    }
+
+    private async Task<bool> DownloadDriveFileToCacheAsync(DriveFileReference file)
+    {
+        _localPaths.EnsureCreated();
+        var folder = Path.Combine(_localPaths.GoogleDriveCacheRoot, SafePathSegment(file.FileId));
+        Directory.CreateDirectory(folder);
+        var fileName = SafeFileName(file.FileName);
+        var path = Path.Combine(folder, fileName);
+        if (File.Exists(path) && new FileInfo(path).Length > 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            var client = _httpClientFactory.CreateClient();
+            await using var stream = await client.GetStreamAsync(GoogleDriveStorage.PublicDownloadUrl(file.FileId));
+            await using var output = File.Create(path);
+            await stream.CopyToAsync(output);
+            return true;
+        }
+        catch
+        {
+            try
+            {
+                var download = await _googleDrive.DownloadAsync(file.FileId);
+                if (download is null)
+                {
+                    return false;
+                }
+
+                await using var output = File.Create(path);
+                await download.Stream.CopyToAsync(output);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+    }
+
+    private static string DriveFileNameFromUrl(string url)
+    {
+        const string prefix = "/files/drive/";
+        var remaining = url.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? url[prefix.Length..] : url;
+        var slash = remaining.IndexOf('/');
+        if (slash < 0 || slash >= remaining.Length - 1)
+        {
+            return "drive-file.bin";
+        }
+
+        return Uri.UnescapeDataString(remaining[(slash + 1)..]);
+    }
+
+    private static string SafePathSegment(string value)
+    {
+        var safe = new string(value.Select(ch => char.IsLetterOrDigit(ch) || ch is '-' or '_' ? ch : '_').ToArray());
+        return string.IsNullOrWhiteSpace(safe) ? "file" : safe;
+    }
+
+    private static string SafeFileName(string value)
+    {
+        var fileName = Path.GetFileName(value);
+        foreach (var invalid in Path.GetInvalidFileNameChars())
+        {
+            fileName = fileName.Replace(invalid, '_');
+        }
+
+        return string.IsNullOrWhiteSpace(fileName) ? "drive-file.bin" : fileName;
+    }
+
+    private sealed record DriveFileReference(string FileId, string FileName);
 
     private string? ResolveLocalFilePath(string url)
     {
