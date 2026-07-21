@@ -1247,9 +1247,10 @@ dd {
 }
 
 .checkup-patient-avatar {
-  width: 3.2rem;
-  height: 3.2rem;
-  flex: 0 0 3.2rem;
+  width: 6.25rem;
+  height: 6.25rem;
+  flex: 0 0 6.25rem;
+  border-radius: 10px;
 }
 
 .patient-summary-name {
@@ -2283,6 +2284,12 @@ pre {
 }
 
 @media (max-width: 780px) {
+  .checkup-patient-avatar {
+    width: 4.5rem;
+    height: 4.5rem;
+    flex-basis: 4.5rem;
+  }
+
   .app-header .navbar {
     padding-inline: 1rem;
   }
