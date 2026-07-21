@@ -1,5 +1,5 @@
-const CACHE_NAME = "medrec-offline-v11";
-const RUNTIME_CACHE = "medrec-runtime-v11";
+const CACHE_NAME = "medrec-offline-v12";
+const RUNTIME_CACHE = "medrec-runtime-v12";
 const CORE_ASSETS = [
   "/Account/Login",
   "/Account/Login?returnUrl=%2F",
@@ -22,6 +22,7 @@ const OFFLINE_NAVIGATION_URLS = [
   "/Settings"
 ];
 let vaultSessionKey = null;
+let offlineMode = false;
 
 self.addEventListener("message", (event) => {
   if (event.data?.type === "SKIP_WAITING") self.skipWaiting();
@@ -47,6 +48,7 @@ self.addEventListener("message", (event) => {
   }
   if (event.data?.type === "SET_VAULT_SESSION_KEY") vaultSessionKey = event.data.key || null;
   if (event.data?.type === "GET_VAULT_SESSION_KEY" && event.ports?.[0]) event.ports[0].postMessage({ key: vaultSessionKey });
+  if (event.data?.type === "SET_CONNECTIVITY") offlineMode = event.data.online === false;
 });
 
 self.addEventListener("install", (event) => {
@@ -79,7 +81,7 @@ self.addEventListener("fetch", (event) => {
 
   if (event.request.mode === "navigate") {
     event.respondWith(
-      safeNavigate(event.request)
+      safeNavigate(event.request, event)
     );
     return;
   }
@@ -89,8 +91,12 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  if (url.pathname.startsWith("/uploads/")
-      || url.pathname.startsWith("/css/")
+  if (url.pathname.startsWith("/uploads/") || url.pathname.startsWith("/files/drive/")) {
+    event.respondWith(cacheFirst(event.request));
+    return;
+  }
+
+  if (url.pathname.startsWith("/css/")
       || url.pathname.startsWith("/js/")
       || url.pathname.startsWith("/lib/")) {
     event.respondWith(networkFirst(event.request, null, false, true, RUNTIME_CACHE));
@@ -125,7 +131,12 @@ async function networkFirst(request, fallbackUrl, preferFallback = false, cacheS
   }
 }
 
-async function navigateNetworkFirst(request) {
+async function navigateNetworkFirst(request, event) {
+  const cachedPage = await caches.match(request);
+  if (cachedPage && (offlineMode || self.navigator.onLine === false)) {
+    return cachedPage;
+  }
+
   try {
     return await fetchWithTimeout(request.clone(), 4500).then(async (response) => {
       if (response && response.ok && shouldCacheNavigationResponse(request.url, response)) {
@@ -158,9 +169,9 @@ async function navigateNetworkFirst(request) {
   }
 }
 
-async function safeNavigate(request) {
+async function safeNavigate(request, event) {
   try {
-    const response = await navigateNetworkFirst(request);
+    const response = await navigateNetworkFirst(request, event);
     if (response) return response;
   } catch {
     // Fall through to a guaranteed HTML response below.

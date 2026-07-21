@@ -75,6 +75,11 @@
     const online = navigator.onLine && serverReachable;
     const label = online ? "Online" : "Disconnected";
 
+    navigator.serviceWorker?.controller?.postMessage({
+      type: "SET_CONNECTIVITY",
+      online
+    });
+
     if (connectionStatus) {
       connectionStatus.textContent = label;
       connectionStatus.classList.toggle("online", online);
