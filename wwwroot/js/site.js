@@ -70,6 +70,7 @@
   const pendingLabsKey = "medrec.pendingLabs";
   const pendingPrescriptionsKey = "medrec.pendingPrescriptions";
   let serverReachable = navigator.onLine;
+  let offlineUiHydrated = false;
 
   function setConnectionState() {
     const online = navigator.onLine && serverReachable;
@@ -1823,9 +1824,20 @@
 
       try {
         if (window.medrecOfflineStore && typeof window.medrecOfflineStore.enqueuePost === "function") {
-          const queuedPostId = await window.medrecOfflineStore.enqueuePost(form);
+          const pendingDomainEntity = pendingPatient || pendingCheckup || pendingLab;
+          let queuedPostId;
+          if (pendingDomainEntity && typeof window.medrecOfflineStore.enqueueOperation === "function") {
+            const operation = buildOfflineOperation(pendingDomainEntity, pendingPatient ? "patient.upsert" : pendingCheckup ? "record.upsert" : "lab.upsert");
+            const files = Array.from(form.querySelectorAll("input[type='file']")).flatMap((input) => Array.from(input.files || []));
+            queuedPostId = await window.medrecOfflineStore.enqueueOperation(operation, files);
+          } else {
+            queuedPostId = await window.medrecOfflineStore.enqueuePost(form);
+          }
           if (pendingLab) {
             pendingLab.queueId = queuedPostId;
+          }
+          if (pendingPatient) {
+            pendingPatient.queueId = queuedPostId;
           }
           if (pendingLabUpdate) {
             pendingLabUpdate.queueId = queuedPostId;
@@ -1853,6 +1865,7 @@
             ? "Saved locally with its file. It will upload when the connection returns."
             : "Saved locally on this browser. It will send when the connection returns.");
           form.reset();
+          closeContainingModal(form);
           return;
         }
 
@@ -1882,6 +1895,7 @@
         }
         showLocalFlash("Saved locally on this browser. It will send when the connection returns.");
         form.reset();
+        closeContainingModal(form);
       } catch (error) {
         showLocalFlash(error.message || "Local save failed. Keep this page open and try again.", "error");
       }
@@ -1889,13 +1903,42 @@
   });
 
   window.addEventListener("online", replayLocalPostQueue);
-  window.addEventListener("online", () => window.medrecOfflineStore?.replayPostQueue?.());
+  window.addEventListener("online", async () => {
+    await window.medrecOfflineStore?.replayOperations?.();
+    await window.medrecOfflineStore?.replayPostQueue?.();
+  });
   document.addEventListener("medrec:offline-queue-replayed", (event) => {
     if ((event.detail?.remaining || 0) === 0 && (event.detail?.sent || 0) > 0) {
       clearPendingLocalChanges();
       reloadCurrentDataPageAfterSync();
     }
   });
+  document.addEventListener("medrec:offline-operations-replayed", (event) => {
+    if ((event.detail?.remaining || 0) === 0 && (event.detail?.sent || 0) > 0) {
+      const localPatientUid = offlinePatientUid();
+      const syncedPatient = localPatientUid
+        ? event.detail?.snapshot?.patients?.find((patient) => patient.clientUid === localPatientUid)
+        : null;
+      clearPendingDomainCreates();
+      if (syncedPatient?.id) {
+        window.location.replace(`/Records?patientId=${encodeURIComponent(syncedPatient.id)}`);
+        return;
+      }
+      reloadCurrentDataPageAfterSync();
+    }
+    if ((event.detail?.conflicts || []).length > 0) {
+      showLocalFlash(event.detail.conflicts[0].message || "Some offline changes could not be synced.", "error");
+    }
+  });
+  document.addEventListener("medrec:offline-queue-changed", () => {
+    if (offlineUiHydrated) return;
+    offlineUiHydrated = true;
+    initializeOfflinePatientWorkspace();
+    renderPendingPatients();
+    renderPendingCheckups();
+    renderPendingLabs();
+  });
+  initializeOfflinePatientWorkspace();
   renderPendingPatients();
   renderPendingCheckups();
   renderPendingLabs();
@@ -1903,6 +1946,13 @@
 
   function antiForgeryToken() {
     return document.querySelector('input[name="__RequestVerificationToken"]')?.value || "";
+  }
+
+  function closeContainingModal(form) {
+    const modal = form.closest(".modal");
+    if (modal && window.bootstrap) {
+      bootstrap.Modal.getOrCreateInstance(modal).hide();
+    }
   }
 
   function enqueueLocalPostItem(item) {
@@ -2026,19 +2076,33 @@
 
     return {
       localId: crypto.randomUUID ? crypto.randomUUID() : `local-patient-${Date.now()}-${Math.random()}`,
+      patientNumber: "",
       fullName,
-      age: fieldValue(form, "NewPatient.Age") || "0",
+      age: Number(fieldValue(form, "NewPatient.Age") || 0),
+      address: fieldValue(form, "NewPatient.Address"),
       sex: fieldValue(form, "NewPatient.Sex"),
       civilStatus: fieldValue(form, "NewPatient.CivilStatus"),
       contactNumber: fieldValue(form, "NewPatient.ContactNumber"),
+      occupation: fieldValue(form, "NewPatient.Occupation"),
+      company: fieldValue(form, "NewPatient.Company"),
       email: fieldValue(form, "NewPatient.Email"),
       partnerName: fieldValue(form, "NewPatient.PartnerName"),
       partnerContactNumber: fieldValue(form, "NewPatient.PartnerContactNumber"),
+      ageOfMenarche: numberOrNull(fieldValue(form, "NewPatient.AgeOfMenarche")),
+      menopauseAge: numberOrNull(fieldValue(form, "NewPatient.MenopauseAge")),
+      previousMenstrualPeriod: fieldValue(form, "NewPatient.PreviousMenstrualPeriod") || null,
+      periodCycleDays: numberOrNull(fieldValue(form, "NewPatient.PeriodCycleDays")),
+      periodDurationDays: numberOrNull(fieldValue(form, "NewPatient.PeriodDurationDays")),
+      menstrualAmount: fieldValue(form, "NewPatient.MenstrualAmount"),
       menstrualPattern: fieldValue(form, "NewPatient.MenstrualPattern"),
-      sexuallyActive: fieldValue(form, "NewPatient.SexuallyActive"),
-      heightCm: fieldValue(form, "NewPatient.HeightCm"),
-      weightKg: fieldValue(form, "NewPatient.WeightKg"),
-      lastMenstrualPeriod: fieldValue(form, "NewPatient.LastMenstrualPeriod"),
+      sexuallyActive: boolOrNull(fieldValue(form, "NewPatient.SexuallyActive")),
+      contraceptionMethod: fieldValue(form, "NewPatient.ContraceptionMethod"),
+      heightCm: numberOrNull(fieldValue(form, "NewPatient.HeightCm")),
+      weightKg: numberOrNull(fieldValue(form, "NewPatient.WeightKg")),
+      bloodPressure: fieldValue(form, "NewPatient.BloodPressure"),
+      fetalHeartTone: fieldValue(form, "NewPatient.FetalHeartTone"),
+      lastMenstrualPeriod: fieldValue(form, "NewPatient.LastMenstrualPeriod") || null,
+      photoUrl: fieldValue(form, "NewPatient.PhotoUrl"),
       referredBy: fieldValue(form, "NewPatient.ReferredBy"),
       createdAtUtc: new Date().toISOString()
     };
@@ -2058,21 +2122,23 @@
 
     const patientSelect = form.querySelector('[name="NewRecord.PatientId"]');
     const selectedPatient = patientSelect?.selectedOptions?.[0];
+    const patientClientUid = selectedPatient?.dataset.clientUid || patientId;
 
     return {
       localId: crypto.randomUUID ? crypto.randomUUID() : `local-${Date.now()}-${Math.random()}`,
       patientId,
+      patientClientUid,
       patientName: selectedPatient?.textContent?.trim() || "",
       visitDate,
       chiefComplaint,
       diagnosis: "",
       notes: "",
       doctorName: "",
-      heightCm: fieldValue(form, "NewRecord.HeightCm"),
-      weightKg: fieldValue(form, "NewRecord.WeightKg"),
+      heightCm: numberOrNull(fieldValue(form, "NewRecord.HeightCm")),
+      weightKg: numberOrNull(fieldValue(form, "NewRecord.WeightKg")),
       bloodPressure: fieldValue(form, "NewRecord.BloodPressure"),
       fetalHeartRate: fieldValue(form, "NewRecord.FetalHeartRate"),
-      temperatureC: fieldValue(form, "NewRecord.TemperatureC"),
+      temperatureC: numberOrNull(fieldValue(form, "NewRecord.TemperatureC")),
       createdAtUtc: new Date().toISOString()
     };
   }
@@ -2093,18 +2159,23 @@
     const fileInput = form.querySelector('[name="NewLab.File"]');
     const fileName = fileInput?.files?.[0]?.name || "";
     const patientName = document.querySelector(".checkup-patient-title span")?.textContent?.trim() || "";
+    const patientField = form.querySelector('[name="NewLab.PatientId"]');
 
     return {
       localId: crypto.randomUUID ? crypto.randomUUID() : `local-lab-${Date.now()}-${Math.random()}`,
       patientId,
+      patientClientUid: patientField?.dataset.patientClientUid || patientId,
       patientName,
       clinicalRecordId: fieldValue(form, "NewLab.ClinicalRecordId"),
+      recordClientUid: selectedRecord?.dataset.clientUid || fieldValue(form, "NewLab.ClinicalRecordId"),
       checkupLabel: selectedRecord?.textContent?.trim() || "Not attached",
       testName,
       requestedDate: fieldValue(form, "NewLab.RequestedDate") || new Date().toISOString(),
       resultDate: fieldValue(form, "NewLab.ResultDate"),
       fileUrl: fieldValue(form, "NewLab.FileUrl"),
       fileName,
+      fileContentType: fileInput?.files?.[0]?.type || "application/pdf",
+      notes: fieldValue(form, "NewLab.Notes"),
       createdAtUtc: new Date().toISOString()
     };
   }
@@ -2128,6 +2199,25 @@
       resultDate: fieldValue(form, "LabEdit.ResultDate"),
       fileUrl: fieldValue(form, "LabEdit.FileUrl"),
       notes: fieldValue(form, "LabEdit.Notes")
+    };
+  }
+
+  function buildOfflineOperation(entity, type) {
+    const payload = { ...entity };
+    delete payload.localId;
+    delete payload.queueId;
+    delete payload.createdAtUtc;
+    if (type === "lab.upsert") {
+      payload.status = "Uploaded";
+    }
+
+    return {
+      id: entity.localId,
+      type,
+      entityUid: entity.localId,
+      baseUpdatedAt: null,
+      payload,
+      createdAtUtc: entity.createdAtUtc || new Date().toISOString()
     };
   }
 
@@ -2234,6 +2324,18 @@
     return root.querySelector(`[name="${name}"]`)?.value?.trim() || "";
   }
 
+  function numberOrNull(value) {
+    if (value === "" || value === null || value === undefined) return null;
+    const number = Number(value);
+    return Number.isFinite(number) ? number : null;
+  }
+
+  function boolOrNull(value) {
+    if (value === "true") return true;
+    if (value === "false") return false;
+    return null;
+  }
+
   function readPendingCheckups() {
     try {
       const items = JSON.parse(localStorage.getItem(pendingCheckupsKey) || "[]");
@@ -2331,6 +2433,13 @@
     document.querySelectorAll("[data-local-patient-id], [data-local-checkup-id], [data-local-lab-id], [data-local-prescription-id]").forEach((item) => item.remove());
   }
 
+  function clearPendingDomainCreates() {
+    localStorage.removeItem(pendingPatientsKey);
+    localStorage.removeItem(pendingCheckupsKey);
+    localStorage.removeItem(pendingLabsKey);
+    document.querySelectorAll("[data-local-patient-id], [data-local-checkup-id], [data-local-lab-id]").forEach((item) => item.remove());
+  }
+
   function reloadCurrentDataPageAfterSync() {
     if (["/Patients", "/Records", "/Prescriptions"].includes(window.location.pathname)) {
       window.location.reload();
@@ -2377,13 +2486,118 @@
       </dl>
       <div class="card-actions">
         <span class="status pending">Pending</span>
-        <button class="btn btn-outline-primary" type="button" disabled>Check ups after sync</button>
+        <a class="btn btn-outline-primary" href="/Records#offlinePatient=${encodeURIComponent(patient.localId)}">Check ups</a>
       </div>
     `;
+    hydratePendingPatientPhoto(article, patient);
     return article;
   }
 
+  async function hydratePendingPatientPhoto(article, patient) {
+    const queuedFile = await window.medrecOfflineStore?.getOperationFile?.(patient.queueId);
+    if (!queuedFile?.blob || !article.isConnected) return;
+
+    const current = article.querySelector(".patient-card-photo");
+    if (!current) return;
+    const image = document.createElement("img");
+    image.className = "avatar avatar-large avatar-img patient-card-photo";
+    image.alt = patient.fullName || "Pending patient";
+    image.src = URL.createObjectURL(queuedFile.blob);
+    current.replaceWith(image);
+  }
+
+  function offlinePatientUid() {
+    if (window.location.pathname !== "/Records") return "";
+    return new URLSearchParams(window.location.hash.replace(/^#/, "")).get("offlinePatient") || "";
+  }
+
+  function initializeOfflinePatientWorkspace() {
+    const patientUid = offlinePatientUid();
+    if (!patientUid) return;
+
+    const patient = readPendingPatients().find((item) => item.localId === patientUid);
+    if (!patient) return;
+
+    const heading = document.querySelector(".checkup-patient-title");
+    const headingName = heading?.querySelector("span");
+    if (headingName) headingName.textContent = patient.fullName || "Offline patient";
+    const headingAvatar = heading?.querySelector(".checkup-patient-avatar");
+    if (headingAvatar) {
+      const fallback = document.createElement("div");
+      fallback.className = "avatar checkup-patient-avatar";
+      fallback.textContent = initial(patient.fullName);
+      headingAvatar.replaceWith(fallback);
+      hydrateOfflineHeadingPhoto(fallback, patient);
+    }
+
+    document.querySelector("[data-records-patient-uid]")?.setAttribute("data-records-patient-uid", patientUid);
+    const patientSelect = document.querySelector('[name="NewRecord.PatientId"]');
+    if (patientSelect) {
+      patientSelect.replaceChildren(new Option(patient.fullName || "Offline patient", patientUid, true, true));
+      patientSelect.options[0].dataset.clientUid = patientUid;
+    }
+
+    const labPatient = document.querySelector('[name="NewLab.PatientId"]');
+    if (labPatient) {
+      labPatient.value = patientUid;
+      labPatient.dataset.patientClientUid = patientUid;
+      const display = labPatient.parentElement?.querySelector("input.form-control[disabled]");
+      if (display) display.value = patient.fullName || "Offline patient";
+    }
+
+    document.querySelector(".checkup-tabs")?.replaceChildren();
+    document.querySelector(".lab-picker")?.replaceChildren();
+    const clinicalPane = document.querySelector(".viewer-pane:not(.pdf-viewer-pane)");
+    if (clinicalPane) {
+      clinicalPane.innerHTML = '<div class="pdf-empty">Create a check up for this patient.</div>';
+    }
+    if (pdfTitle) pdfTitle.textContent = "No laboratories yet on this checkup";
+    if (pdfPatient) pdfPatient.textContent = patient.fullName || "Offline patient";
+    if (pdfFrame) {
+      pdfFrame.src = "about:blank";
+      pdfFrame.classList.add("d-none");
+    }
+    if (labImageFrame) {
+      labImageFrame.removeAttribute("src");
+      labImageFrame.classList.add("d-none");
+    }
+    if (pdfEmpty) {
+      pdfEmpty.textContent = "Create a check up, then upload a lab.";
+      pdfEmpty.classList.remove("d-none");
+    }
+    syncPendingCheckupOptions();
+  }
+
+  async function hydrateOfflineHeadingPhoto(fallback, patient) {
+    const queuedFile = await window.medrecOfflineStore?.getOperationFile?.(patient.queueId);
+    if (!queuedFile?.blob || !fallback.isConnected) return;
+    const image = document.createElement("img");
+    image.className = "avatar avatar-img checkup-patient-avatar";
+    image.alt = patient.fullName || "Offline patient";
+    image.src = URL.createObjectURL(queuedFile.blob);
+    fallback.replaceWith(image);
+  }
+
+  function syncPendingCheckupOptions() {
+    const select = document.querySelector('[name="NewLab.ClinicalRecordId"]');
+    if (!select) return;
+
+    Array.from(select.querySelectorAll("option[data-local-record-uid]")).forEach((option) => option.remove());
+    const patientId = currentRecordsPatientId();
+    readPendingCheckups()
+      .filter((record) => String(record.patientId) === String(patientId))
+      .sort((left, right) => new Date(right.visitDate) - new Date(left.visitDate))
+      .forEach((record) => {
+        const option = new Option(`${formatCheckupDate(record.visitDate)} - ${record.chiefComplaint || "Check up"}`, record.localId);
+        option.dataset.localRecordUid = record.localId;
+        option.dataset.clientUid = record.localId;
+        select.append(option);
+      });
+  }
+
   function currentRecordsPatientId() {
+    const offlineUid = offlinePatientUid();
+    if (offlineUid) return offlineUid;
     const fromQuery = new URLSearchParams(window.location.search).get("patientId");
     if (fromQuery) {
       return fromQuery;
@@ -2437,6 +2651,7 @@
       });
       tabList.prepend(tab);
     });
+    syncPendingCheckupOptions();
   }
 
   function renderPendingLabs() {
@@ -2447,7 +2662,8 @@
 
     document.querySelectorAll("[data-local-lab-id]").forEach((item) => item.remove());
     const patientId = currentRecordsPatientId();
-    const selectedRecordId = new URLSearchParams(window.location.search).get("recordId")
+    const selectedRecordId = document.querySelector(".checkup-tab.active")?.dataset.localCheckupId
+      || new URLSearchParams(window.location.search).get("recordId")
       || document.querySelector(".checkup-tab.active")?.href?.match(/[?&]recordId=(\d+)/)?.[1]
       || "";
 
@@ -2553,7 +2769,8 @@
         : "This lab is saved on this device and will sync when the connection returns.";
     }
 
-    const queuedFile = await window.medrecOfflineStore?.getQueuedFile?.(lab.queueId, "NewLab.File");
+    const queuedFile = await window.medrecOfflineStore?.getOperationFile?.(lab.queueId)
+      || await window.medrecOfflineStore?.getQueuedFile?.(lab.queueId, "NewLab.File");
     if (!queuedFile?.blob || !button.classList.contains("active")) {
       return;
     }
@@ -2576,6 +2793,9 @@
   function showPendingCheckup(record) {
     document.querySelectorAll(".checkup-tab").forEach((item) => item.classList.remove("active"));
     document.querySelector(`[data-local-checkup-id="${cssEscape(record.localId)}"]`)?.classList.add("active");
+    const labRecordSelect = document.querySelector('[name="NewLab.ClinicalRecordId"]');
+    if (labRecordSelect) labRecordSelect.value = record.localId;
+    renderPendingLabs();
 
     const pane = document.querySelector(".viewer-pane");
     if (!pane) {

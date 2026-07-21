@@ -1,6 +1,6 @@
 (function () {
   const dbName = "medrec-offline";
-  const dbVersion = 1;
+  const dbVersion = 2;
   const snapshotKey = "current";
   const snapshotUrl = "/api/offline/snapshot";
   const fileCacheName = "medrec-offline-files-v1";
@@ -23,6 +23,9 @@
         }
         if (!db.objectStoreNames.contains("postQueue")) {
           db.createObjectStore("postQueue", { keyPath: "id" });
+        }
+        if (!db.objectStoreNames.contains("operations")) {
+          db.createObjectStore("operations", { keyPath: "id" });
         }
       };
       request.onsuccess = () => resolve(request.result);
@@ -299,6 +302,134 @@
     return item.files.find((file) => !fieldName || file.name === fieldName) || null;
   }
 
+  async function enqueueOperation(operation, files = []) {
+    const firstFile = files.find((file) => file instanceof File && file.name && file.size > 0);
+    const maxBytes = operation.type === "patient.upsert" ? 5 * 1024 * 1024 : 15 * 1024 * 1024;
+    if (firstFile && firstFile.size > maxBytes) {
+      throw new Error(operation.type === "patient.upsert"
+        ? "Patient image must be 5 MB or smaller."
+        : "Lab attachment must be 15 MB or smaller.");
+    }
+    const storedFiles = files
+      .filter((file) => file instanceof File && file.name && file.size > 0)
+      .map((file) => ({
+        fileName: file.name,
+        type: file.type || "application/octet-stream",
+        blob: file
+      }));
+    await put("operations", {
+      ...operation,
+      files: storedFiles,
+      createdAtUtc: operation.createdAtUtc || new Date().toISOString()
+    });
+    await notifyQueueChanged();
+    return operation.id;
+  }
+
+  async function getOperationFile(operationId) {
+    const operation = await get("operations", operationId);
+    return operation?.files?.[0] || null;
+  }
+
+  async function replayOperations() {
+    if (!navigator.onLine || replayInProgress) {
+      return { sent: 0, remaining: await countQueuedOperations() };
+    }
+
+    const stored = (await getAll("operations"))
+      .sort((left, right) => new Date(left.createdAtUtc) - new Date(right.createdAtUtc));
+    if (stored.length === 0) {
+      return { sent: 0, remaining: 0 };
+    }
+
+    replayInProgress = true;
+    try {
+      const operations = [];
+      for (const item of stored) {
+        const payload = { ...(item.payload || {}) };
+        const file = item.files?.[0];
+        if (file?.blob) {
+          const encoded = await blobToBase64(file.blob);
+          if (item.type === "patient.upsert") {
+            payload.photoBase64 = encoded;
+          } else if (item.type === "lab.upsert") {
+            payload.fileBase64 = encoded;
+            payload.fileName = file.fileName;
+            payload.fileContentType = file.type;
+          }
+        }
+        operations.push({
+          id: item.id,
+          type: item.type,
+          entityUid: item.entityUid,
+          baseUpdatedAt: item.baseUpdatedAt || null,
+          payload
+        });
+      }
+
+      const token = antiForgeryToken();
+      const response = await fetch("/api/offline/push", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { "RequestVerificationToken": token } : {})
+        },
+        body: JSON.stringify({
+          deviceId: getDeviceId(),
+          operations
+        })
+      });
+      if (!response.ok || response.url.includes("/Account/Login")) {
+        return { sent: 0, remaining: stored.length };
+      }
+
+      const result = await response.json();
+      const accepted = Array.isArray(result.acceptedOperationIds) ? result.acceptedOperationIds : [];
+      for (const id of accepted) {
+        await deleteItem("operations", id);
+      }
+      await notifyQueueChanged();
+      const remaining = await countQueuedOperations();
+      document.dispatchEvent(new CustomEvent("medrec:offline-operations-replayed", {
+        detail: {
+          sent: accepted.length,
+          remaining,
+          conflicts: result.conflicts || [],
+          snapshot: result.snapshot || null
+        }
+      }));
+      if (accepted.length > 0 && remaining === 0) {
+        await refreshSnapshot();
+      }
+      return { sent: accepted.length, remaining };
+    } catch {
+      return { sent: 0, remaining: await countQueuedOperations() };
+    } finally {
+      replayInProgress = false;
+    }
+  }
+
+  async function blobToBase64(blob) {
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    let binary = "";
+    const chunkSize = 0x8000;
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+    }
+    return btoa(binary);
+  }
+
+  function getDeviceId() {
+    const key = "medrec.deviceId";
+    let id = localStorage.getItem(key);
+    if (!id) {
+      id = crypto.randomUUID ? crypto.randomUUID() : `web-${Date.now()}-${Math.random()}`;
+      localStorage.setItem(key, id);
+    }
+    return id;
+  }
+
   async function replayPostQueue() {
     if (!navigator.onLine || replayInProgress) {
       return { sent: 0, remaining: await countQueuedPosts() };
@@ -376,10 +507,14 @@
     return (await getAll("postQueue")).length;
   }
 
+  async function countQueuedOperations() {
+    return (await getAll("operations")).length;
+  }
+
   async function notifyQueueChanged() {
     document.dispatchEvent(new CustomEvent("medrec:offline-queue-changed", {
       detail: {
-        queuedCount: await countQueuedPosts()
+        queuedCount: await countQueuedPosts() + await countQueuedOperations()
       }
     }));
   }
@@ -388,7 +523,10 @@
     refreshSnapshot,
     enqueuePost,
     getQueuedFile,
+    enqueueOperation,
+    getOperationFile,
     replayPostQueue,
+    replayOperations,
     countQueuedPosts,
     getSnapshot: async () => {
       const stored = await get("snapshots", snapshotKey);
@@ -397,17 +535,19 @@
   };
 
   window.addEventListener("online", async () => {
+    await replayOperations();
     await replayPostQueue();
     await refreshSnapshot();
   });
   document.addEventListener("DOMContentLoaded", async () => {
     await notifyQueueChanged();
+    await replayOperations();
     await replayPostQueue();
     await refreshSnapshot();
   });
   window.setInterval(() => {
     if (navigator.onLine) {
-      replayPostQueue();
+      replayOperations().then(() => replayPostQueue());
     }
   }, 30000);
 })();

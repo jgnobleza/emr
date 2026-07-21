@@ -18,7 +18,7 @@
         : "Not attached";
 }
 
-<section class="page-heading">
+<section class="page-heading" data-records-patient-uid="@Model.SelectedPatient?.ClientUid">
     <div>
         <p class="eyebrow">Check Ups</p>
         <h1 class="checkup-patient-title">
@@ -287,7 +287,12 @@
                     <div class="form-grid">
                         <div>
                             <label asp-for="NewRecord.PatientId" class="form-label">Patient</label>
-                            <select asp-for="NewRecord.PatientId" class="form-select" asp-items="@(new SelectList(Model.Patients, "Id", "FullName"))"></select>
+                            <select asp-for="NewRecord.PatientId" class="form-select">
+                                @foreach (var patient in Model.Patients)
+                                {
+                                    <option value="@patient.Id" data-client-uid="@patient.ClientUid">@patient.FullName</option>
+                                }
+                            </select>
                             <span asp-validation-for="NewRecord.PatientId" class="text-danger"></span>
                         </div>
                         <div>
@@ -359,7 +364,7 @@
                     <div class="form-grid">
                         <div>
                             <label class="form-label">Patient</label>
-                            <input asp-for="NewLab.PatientId" type="hidden">
+                            <input asp-for="NewLab.PatientId" type="hidden" data-patient-client-uid="@Model.SelectedPatient?.ClientUid">
                             <input class="form-control" value="@(Model.SelectedPatient?.FullName ?? string.Empty)" disabled>
                         </div>
                         <div>
@@ -368,7 +373,7 @@
                                 <option value="">Select check up</option>
                                 @foreach (var record in Model.PatientRecords)
                                 {
-                                    <option value="@record.Id">@record.VisitDate.ToString("MMM d") - @record.ChiefComplaint</option>
+                                    <option value="@record.Id" data-client-uid="@record.ClientUid">@record.VisitDate.ToString("MMM d") - @record.ChiefComplaint</option>
                                 }
                             </select>
                             <span asp-validation-for="NewLab.ClinicalRecordId" class="text-danger"></span>
