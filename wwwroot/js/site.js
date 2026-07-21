@@ -1461,6 +1461,33 @@
     });
   });
 
+  document.querySelectorAll(".edit-lab-button").forEach((button) => {
+    button.addEventListener("click", () => {
+      setField("LabEdit.LabId", button.dataset.labId);
+      setField("LabEdit.PatientId", button.dataset.patientId);
+      setField("LabEdit.ClinicalRecordId", button.dataset.recordId);
+      setField("LabEdit.TestName", button.dataset.testName);
+      setField("LabEdit.RequestedDate", button.dataset.requestedDate);
+      setField("LabEdit.ResultDate", button.dataset.resultDate);
+      setField("LabEdit.FileUrl", button.dataset.fileUrl);
+      setField("LabEdit.Notes", button.dataset.notes);
+    });
+  });
+
+  document.querySelectorAll("[data-delete-lab-form]").forEach((form) => {
+    form.addEventListener("submit", (event) => {
+      if (!window.confirm("Delete this lab result? This cannot be undone.")) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        return;
+      }
+
+      if (!navigator.onLine || !serverReachable) {
+        window.setTimeout(() => form.closest(".lab-picker-card")?.remove(), 0);
+      }
+    });
+  });
+
   document.querySelectorAll("[data-prescription-drugs]").forEach((section) => {
     const list = section.querySelector("[data-prescription-drug-list]");
     const template = section.querySelector("[data-prescription-drug-template]");
@@ -1772,6 +1799,7 @@
       const pendingPatient = buildPendingPatient(form);
       const pendingCheckup = buildPendingCheckup(form);
       const pendingLab = buildPendingLab(form);
+      const pendingLabUpdate = buildPendingLabUpdate(form);
       const pendingPrescription = buildPendingPrescription(form);
       const pendingCheckupUpdate = buildPendingCheckupUpdate(form);
 
@@ -1792,6 +1820,8 @@
           } else if (pendingLab) {
             savePendingLab(pendingLab);
             renderPendingLabs();
+          } else if (pendingLabUpdate) {
+            applyPendingLabUpdate(pendingLabUpdate);
           } else if (pendingPrescription) {
             savePendingPrescription(pendingPrescription);
             renderPendingPrescriptions();
@@ -1821,6 +1851,8 @@
         } else if (pendingLab) {
           savePendingLab(pendingLab);
           renderPendingLabs();
+        } else if (pendingLabUpdate) {
+          applyPendingLabUpdate(pendingLabUpdate);
         } else if (pendingPrescription) {
           savePendingPrescription(pendingPrescription);
           renderPendingPrescriptions();
@@ -2054,6 +2086,63 @@
       fileName,
       createdAtUtc: new Date().toISOString()
     };
+  }
+
+  function buildPendingLabUpdate(form) {
+    if (!isPath(form.action, "/Records/UpdateLab")) {
+      return null;
+    }
+
+    const labId = fieldValue(form, "LabEdit.LabId");
+    const testName = fieldValue(form, "LabEdit.TestName");
+    if (!labId || !testName) {
+      return null;
+    }
+
+    return {
+      labId,
+      clinicalRecordId: fieldValue(form, "LabEdit.ClinicalRecordId"),
+      testName,
+      requestedDate: fieldValue(form, "LabEdit.RequestedDate"),
+      resultDate: fieldValue(form, "LabEdit.ResultDate"),
+      fileUrl: fieldValue(form, "LabEdit.FileUrl"),
+      notes: fieldValue(form, "LabEdit.Notes")
+    };
+  }
+
+  function applyPendingLabUpdate(update) {
+    const card = document.querySelector(`.lab-picker-card[data-lab-id="${cssEscape(update.labId)}"]`);
+    if (!card) {
+      return;
+    }
+
+    const selectedRecordId = new URLSearchParams(window.location.search).get("recordId")
+      || document.querySelector(".checkup-tab.active")?.href?.match(/[?&]recordId=(\d+)/)?.[1]
+      || "";
+    if (selectedRecordId && update.clinicalRecordId && String(selectedRecordId) !== String(update.clinicalRecordId)) {
+      card.remove();
+      return;
+    }
+
+    const pickerButton = card.querySelector(".lab-picker-item");
+    const editButton = card.querySelector(".edit-lab-button");
+    const title = pickerButton?.querySelector("strong");
+    const requested = pickerButton?.querySelector("span");
+    if (title) title.textContent = update.testName;
+    if (requested) requested.textContent = `Requested ${formatCheckupDate(update.requestedDate)}`;
+    if (pickerButton) pickerButton.dataset.labTitle = update.testName;
+    if (editButton) {
+      editButton.dataset.testName = update.testName;
+      editButton.dataset.recordId = update.clinicalRecordId;
+      editButton.dataset.requestedDate = update.requestedDate;
+      editButton.dataset.resultDate = update.resultDate;
+      editButton.dataset.fileUrl = update.fileUrl;
+      editButton.dataset.notes = update.notes;
+    }
+    if (pickerButton?.classList.contains("active")) {
+      const viewerTitle = document.getElementById("pdfTitle");
+      if (viewerTitle) viewerTitle.textContent = update.testName;
+    }
   }
 
   function buildPendingPrescription(form) {

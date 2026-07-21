@@ -122,12 +122,34 @@
                 {
                     var labUrl = !string.IsNullOrWhiteSpace(lab.FileUrl) && lab.FileUrl != "#" ? lab.FileUrl : "";
                     var labKind = IsImageUrl(labUrl) ? "image" : "pdf";
-                    <div class="lab-picker-card">
+                    <div class="lab-picker-card" data-lab-id="@lab.Id">
                         <button class="lab-picker-item @(lab.Id == latestLab?.Id ? "active" : "")" type="button" data-lab-url="@labUrl" data-lab-kind="@labKind" data-lab-title="@lab.TestName" data-lab-patient="@($"{lab.PatientName} - Requested {lab.RequestedDate:MMM d, yyyy}")">
                             <strong>@lab.TestName</strong>
                             <span>Requested @lab.RequestedDate.ToString("MMM d, yyyy")</span>
                             <small>@CheckUpLabel(lab)</small>
                         </button>
+                        <div class="lab-card-actions">
+                            <button class="lab-card-action edit-lab-button"
+                                    type="button"
+                                    title="Edit lab"
+                                    aria-label="Edit @lab.TestName"
+                                    data-bs-toggle="modal"
+                                    data-bs-target="#labEditModal"
+                                    data-lab-id="@lab.Id"
+                                    data-patient-id="@lab.PatientId"
+                                    data-record-id="@lab.ClinicalRecordId"
+                                    data-test-name="@lab.TestName"
+                                    data-requested-date="@InputDate(lab.RequestedDate)"
+                                    data-result-date="@InputDate(lab.ResultDate)"
+                                    data-file-url="@lab.FileUrl"
+                                    data-notes="@lab.Notes">&#9998;</button>
+                            <form asp-action="DeleteLab" method="post" data-offline-form data-delete-lab-form>
+                                <input name="labId" type="hidden" value="@lab.Id">
+                                <input name="patientId" type="hidden" value="@lab.PatientId">
+                                <input name="recordId" type="hidden" value="@selectedRecord?.Id">
+                                <button class="lab-card-action delete" type="submit" title="Delete lab" aria-label="Delete @lab.TestName">&#128465;</button>
+                            </form>
+                        </div>
                         @if (!lab.ClinicalRecordId.HasValue && Model.PatientRecords.Any())
                         {
                             <button class="btn btn-sm btn-outline-primary attach-lab-button"
@@ -385,6 +407,71 @@
                 <div class="modal-footer">
                     <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancel</button>
                     <button class="btn btn-primary" type="submit">Save lab</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<div class="modal fade" id="labEditModal" tabindex="-1" aria-labelledby="labEditModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title fs-5" id="labEditModalLabel">Edit lab</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form asp-action="UpdateLab" method="post" enctype="multipart/form-data" data-offline-form>
+                <div class="modal-body">
+                    <div asp-validation-summary="ModelOnly" class="text-danger"></div>
+                    <input asp-for="LabEdit.LabId" type="hidden">
+                    <input asp-for="LabEdit.PatientId" type="hidden">
+                    <div class="form-grid">
+                        <div>
+                            <label asp-for="LabEdit.TestName" class="form-label">Test name</label>
+                            <input asp-for="LabEdit.TestName" class="form-control">
+                            <span asp-validation-for="LabEdit.TestName" class="text-danger"></span>
+                        </div>
+                        <div>
+                            <label asp-for="LabEdit.ClinicalRecordId" class="form-label">Requested check up</label>
+                            <select asp-for="LabEdit.ClinicalRecordId" class="form-select">
+                                <option value="">Select check up</option>
+                                @foreach (var record in Model.PatientRecords)
+                                {
+                                    <option value="@record.Id">@record.VisitDate.ToString("MMM d") - @record.ChiefComplaint</option>
+                                }
+                            </select>
+                            <span asp-validation-for="LabEdit.ClinicalRecordId" class="text-danger"></span>
+                        </div>
+                        <div>
+                            <label asp-for="LabEdit.RequestedDate" class="form-label">Requested date</label>
+                            <input asp-for="LabEdit.RequestedDate" type="datetime-local" class="form-control">
+                            <span asp-validation-for="LabEdit.RequestedDate" class="text-danger"></span>
+                        </div>
+                        <div>
+                            <label asp-for="LabEdit.ResultDate" class="form-label">Result date</label>
+                            <input asp-for="LabEdit.ResultDate" type="datetime-local" class="form-control">
+                            <span asp-validation-for="LabEdit.ResultDate" class="text-danger"></span>
+                        </div>
+                        <div>
+                            <label asp-for="LabEdit.File" class="form-label">Replace file</label>
+                            <input asp-for="LabEdit.File" type="file" accept="application/pdf,image/*" class="form-control">
+                            <small class="form-text text-muted">Leave empty to keep the current file.</small>
+                            <span asp-validation-for="LabEdit.File" class="text-danger"></span>
+                        </div>
+                        <div>
+                            <label asp-for="LabEdit.FileUrl" class="form-label">File URL</label>
+                            <input asp-for="LabEdit.FileUrl" class="form-control">
+                            <span asp-validation-for="LabEdit.FileUrl" class="text-danger"></span>
+                        </div>
+                        <div class="span-2">
+                            <label asp-for="LabEdit.Notes" class="form-label">Notes</label>
+                            <textarea asp-for="LabEdit.Notes" class="form-control" rows="4"></textarea>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-outline-secondary" type="button" data-bs-dismiss="modal">Cancel</button>
+                    <button class="btn btn-primary" type="submit">Save changes</button>
                 </div>
             </form>
         </div>

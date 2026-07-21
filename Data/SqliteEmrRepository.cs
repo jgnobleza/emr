@@ -260,6 +260,50 @@ public sealed class SqliteEmrRepository
         return labId;
     }
 
+    public async Task UpdateLabResultAsync(LabEditFormModel form, string fileUrl)
+    {
+        await using var connection = await OpenConnectionAsync();
+        await using var transaction = connection.BeginTransaction();
+        var clientUid = await GetClientUidAsync(connection, transaction, "lab_results", form.LabId);
+        const string sql = """
+            UPDATE lab_results
+            SET clinical_record_id = @recordId, test_name = @testName, requested_date = @requestedDate,
+                result_date = @resultDate, file_url = @fileUrl, notes = @notes,
+                sync_status = 'Pending', updated_at = CURRENT_TIMESTAMP
+            WHERE id = @labId AND patient_id = @patientId
+              AND EXISTS (SELECT 1 FROM clinical_records WHERE id = @recordId AND patient_id = @patientId);
+            """;
+        await using var command = new SqliteCommand(sql, connection, transaction);
+        command.Parameters.AddWithValue("@labId", form.LabId);
+        command.Parameters.AddWithValue("@patientId", form.PatientId);
+        command.Parameters.AddWithValue("@recordId", form.ClinicalRecordId!.Value);
+        command.Parameters.AddWithValue("@testName", form.TestName.Trim());
+        command.Parameters.AddWithValue("@requestedDate", DbDateTime(form.RequestedDate));
+        command.Parameters.AddWithValue("@resultDate", DbDateTime(form.ResultDate));
+        command.Parameters.AddWithValue("@fileUrl", fileUrl);
+        AddNullable(command, "@notes", form.Notes?.Trim());
+        if (await command.ExecuteNonQueryAsync() == 0)
+        {
+            throw new InvalidOperationException("Lab and check up must belong to the same patient.");
+        }
+        await AddSyncQueueItemAsync(connection, transaction, "LabResult", form.LabId, clientUid, "Update");
+        await transaction.CommitAsync();
+    }
+
+    public async Task DeleteLabResultAsync(int labId, int patientId)
+    {
+        await using var connection = await OpenConnectionAsync();
+        await using var transaction = connection.BeginTransaction();
+        var clientUid = await GetClientUidAsync(connection, transaction, "lab_results", labId);
+        await AddSyncQueueItemAsync(connection, transaction, "LabResult", labId, clientUid, "Delete");
+        var deleted = await ExecuteAsync(connection, transaction, "DELETE FROM lab_results WHERE id = @labId AND patient_id = @patientId;", ("@labId", labId), ("@patientId", patientId));
+        if (deleted == 0)
+        {
+            throw new InvalidOperationException("Lab result was not found.");
+        }
+        await transaction.CommitAsync();
+    }
+
     public async Task AttachLabToCheckUpAsync(LabAttachmentFormModel form)
     {
         await using var connection = await OpenConnectionAsync();

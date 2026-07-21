@@ -137,6 +137,69 @@ public sealed class RecordsController : Controller
 
     [HttpPost]
     [ValidateAntiForgeryToken]
+    public async Task<IActionResult> UpdateLab([Bind(Prefix = "LabEdit")] LabEditFormModel labEdit)
+    {
+        var dashboard = await _repository.GetDashboardAsync();
+        var lab = dashboard.LabResults.FirstOrDefault(item => item.Id == labEdit.LabId && item.PatientId == labEdit.PatientId);
+        var record = dashboard.RecentRecords.FirstOrDefault(item => item.Id == labEdit.ClinicalRecordId && item.PatientId == labEdit.PatientId);
+
+        if (lab is null)
+        {
+            TempData["Error"] = "Lab result was not found.";
+            return RedirectToAction(nameof(Index), new { patientId = labEdit.PatientId });
+        }
+
+        if (record is null)
+        {
+            ModelState.AddModelError("LabEdit.ClinicalRecordId", "Select requested check up.");
+        }
+
+        if (labEdit.File is not null && !IsAllowedLabFile(labEdit.File))
+        {
+            ModelState.AddModelError("LabEdit.File", "Upload a PDF, JPG, PNG, GIF, or WEBP file.");
+        }
+
+        if (!ModelState.IsValid)
+        {
+            ViewData["OpenModal"] = "labEditModal";
+            return View("Index", await BuildPageAsync(patientId: labEdit.PatientId, recordId: labEdit.ClinicalRecordId, labEdit: labEdit));
+        }
+
+        try
+        {
+            var uploadedUrl = await _uploads.SaveAsync(labEdit.File, "labs");
+            var fileUrl = uploadedUrl
+                ?? (!string.IsNullOrWhiteSpace(labEdit.FileUrl) ? labEdit.FileUrl.Trim() : lab.FileUrl);
+            await _repository.UpdateLabResultAsync(labEdit, fileUrl);
+            TempData["Success"] = "Lab result updated.";
+        }
+        catch (Exception ex)
+        {
+            TempData["Error"] = SaveError(ex);
+        }
+
+        return RedirectToAction(nameof(Index), new { patientId = labEdit.PatientId, recordId = labEdit.ClinicalRecordId });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> DeleteLab(int labId, int patientId, int? recordId)
+    {
+        try
+        {
+            await _repository.DeleteLabResultAsync(labId, patientId);
+            TempData["Success"] = "Lab result deleted.";
+        }
+        catch (Exception ex)
+        {
+            TempData["Error"] = SaveError(ex);
+        }
+
+        return RedirectToAction(nameof(Index), new { patientId, recordId });
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
     public async Task<IActionResult> AttachLab([Bind(Prefix = "LabAttachment")] LabAttachmentFormModel labAttachment)
     {
         var dashboard = await _repository.GetDashboardAsync();
@@ -180,6 +243,7 @@ public sealed class RecordsController : Controller
         int? recordId = null,
         RecordFormModel? newRecord = null,
         LabResultFormModel? newLab = null,
+        LabEditFormModel? labEdit = null,
         LabAttachmentFormModel? labAttachment = null,
         DiagnosisFormModel? diagnosis = null,
         CheckupEditFormModel? checkupEdit = null)
@@ -238,6 +302,13 @@ public sealed class RecordsController : Controller
                 PatientId = selectedPatientId,
                 ClinicalRecordId = selectedRecord?.Id,
                 RequestedDate = selectedRecord?.VisitDate ?? DateTime.Now
+            },
+            LabEdit = labEdit ?? new LabEditFormModel
+            {
+                PatientId = selectedPatientId,
+                ClinicalRecordId = selectedRecord?.Id,
+                RequestedDate = selectedRecord?.VisitDate ?? DateTime.Now,
+                ResultDate = DateTime.Now
             },
             LabAttachment = labAttachment ?? new LabAttachmentFormModel
             {

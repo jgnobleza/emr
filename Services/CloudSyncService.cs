@@ -53,6 +53,8 @@ public sealed class CloudSyncService
 
         var fileUploads = await UploadLocalFilesToGoogleDriveAsync(local, localTransaction);
         var pushed = 0;
+        pushed += await PushLabDeletionsAsync(local, localTransaction, cloud, cloudTransaction);
+        var pulled = await PullLabDeletionsAsync(local, localTransaction, cloud, cloudTransaction);
         pushed += await PushPatientsAsync(local, localTransaction, cloud, cloudTransaction);
         pushed += await PushClinicalRecordsAsync(local, localTransaction, cloud, cloudTransaction);
         pushed += await PushLabResultsAsync(local, localTransaction, cloud, cloudTransaction);
@@ -60,7 +62,6 @@ public sealed class CloudSyncService
         pushed += await PushPrintLayoutsAsync(local, localTransaction, cloud, cloudTransaction);
         pushed += await PushAppSettingsAsync(local, localTransaction, cloud, cloudTransaction);
 
-        var pulled = 0;
         pulled += await PullAppSettingsAsync(local, localTransaction, cloud, cloudTransaction);
         pulled += await PullPatientsAsync(local, localTransaction, cloud, cloudTransaction);
         pulled += await PullClinicalRecordsAsync(local, localTransaction, cloud, cloudTransaction);
@@ -584,6 +585,58 @@ public sealed class CloudSyncService
         }
 
         await ExecuteLocalAsync(local, localTransaction, "UPDATE clinical_records SET sync_status = 'Synced', last_synced_at = CURRENT_TIMESTAMP WHERE sync_status = 'Pending';");
+        return count;
+    }
+
+    private static async Task<int> PushLabDeletionsAsync(SqliteConnection local, SqliteTransaction localTransaction, NpgsqlConnection cloud, NpgsqlTransaction cloudTransaction)
+    {
+        var clientUids = new List<string>();
+        await using (var read = new SqliteCommand("SELECT DISTINCT entity_uid FROM sync_queue WHERE entity_type = 'LabResult' AND operation = 'Delete' AND status = 'Pending';", local, localTransaction))
+        await using (var reader = await read.ExecuteReaderAsync())
+        {
+            while (await reader.ReadAsync())
+            {
+                var clientUid = reader.GetString(0);
+                if (!string.IsNullOrWhiteSpace(clientUid)) clientUids.Add(clientUid);
+            }
+        }
+
+        var count = 0;
+        foreach (var clientUid in clientUids)
+        {
+            await using var delete = new NpgsqlCommand("DELETE FROM lab_results WHERE client_uid = @uid RETURNING id;", cloud, cloudTransaction);
+            delete.Parameters.AddWithValue("@uid", clientUid);
+            var deletedId = await delete.ExecuteScalarAsync();
+            if (deletedId is null) continue;
+
+            await using var queue = new NpgsqlCommand("INSERT INTO sync_queue (entity_type, entity_id, operation, payload_json, status) VALUES ('LabResult', @id, 'Delete', jsonb_build_object('clientUid', @uid), 'Pending');", cloud, cloudTransaction);
+            queue.Parameters.AddWithValue("@id", Convert.ToInt32(deletedId));
+            queue.Parameters.AddWithValue("@uid", clientUid);
+            await queue.ExecuteNonQueryAsync();
+            count++;
+        }
+        return count;
+    }
+
+    private static async Task<int> PullLabDeletionsAsync(SqliteConnection local, SqliteTransaction localTransaction, NpgsqlConnection cloud, NpgsqlTransaction cloudTransaction)
+    {
+        var clientUids = new List<string>();
+        const string sql = "SELECT DISTINCT payload_json->>'clientUid' FROM sync_queue WHERE entity_type = 'LabResult' AND operation = 'Delete' AND payload_json->>'clientUid' IS NOT NULL;";
+        await using (var read = new NpgsqlCommand(sql, cloud, cloudTransaction))
+        await using (var reader = await read.ExecuteReaderAsync())
+        {
+            while (await reader.ReadAsync())
+            {
+                var clientUid = reader.GetString(0);
+                if (!string.IsNullOrWhiteSpace(clientUid)) clientUids.Add(clientUid);
+            }
+        }
+
+        var count = 0;
+        foreach (var clientUid in clientUids)
+        {
+            count += await ExecuteLocalAsync(local, localTransaction, "DELETE FROM lab_results WHERE client_uid = @uid;", ("@uid", clientUid));
+        }
         return count;
     }
 

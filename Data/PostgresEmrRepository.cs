@@ -331,6 +331,54 @@ public sealed class PostgresEmrRepository
         return labId;
     }
 
+    public async Task UpdateLabResultAsync(LabEditFormModel form, string fileUrl)
+    {
+        await using var connection = await OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+        const string sql = """
+            UPDATE lab_results
+            SET clinical_record_id = @recordId, test_name = @testName, requested_date = @requestedDate,
+                result_date = @resultDate, file_url = @fileUrl, notes = @notes,
+                sync_status = 'Pending', updated_at = CURRENT_TIMESTAMP
+            WHERE id = @labId AND patient_id = @patientId
+              AND EXISTS (SELECT 1 FROM clinical_records WHERE id = @recordId AND patient_id = @patientId);
+            """;
+        await using var command = new NpgsqlCommand(sql, connection, transaction);
+        command.Parameters.AddWithValue("@labId", form.LabId);
+        command.Parameters.AddWithValue("@patientId", form.PatientId);
+        command.Parameters.AddWithValue("@recordId", form.ClinicalRecordId!.Value);
+        command.Parameters.AddWithValue("@testName", form.TestName.Trim());
+        command.Parameters.AddWithValue("@requestedDate", form.RequestedDate);
+        command.Parameters.AddWithValue("@resultDate", form.ResultDate);
+        command.Parameters.AddWithValue("@fileUrl", fileUrl);
+        command.Parameters.AddWithValue("@notes", string.IsNullOrWhiteSpace(form.Notes) ? DBNull.Value : form.Notes.Trim());
+        if (await command.ExecuteNonQueryAsync() == 0)
+        {
+            throw new InvalidOperationException("Lab and check up must belong to the same patient.");
+        }
+        await AddSyncQueueItemAsync(connection, transaction, "LabResult", form.LabId, "Update");
+        await transaction.CommitAsync();
+    }
+
+    public async Task DeleteLabResultAsync(int labId, int patientId)
+    {
+        await using var connection = await OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync();
+        await using var command = new NpgsqlCommand("DELETE FROM lab_results WHERE id = @labId AND patient_id = @patientId RETURNING client_uid;", connection, transaction);
+        command.Parameters.AddWithValue("@labId", labId);
+        command.Parameters.AddWithValue("@patientId", patientId);
+        var clientUid = Convert.ToString(await command.ExecuteScalarAsync());
+        if (string.IsNullOrWhiteSpace(clientUid))
+        {
+            throw new InvalidOperationException("Lab result was not found.");
+        }
+        await using var queue = new NpgsqlCommand("INSERT INTO sync_queue (entity_type, entity_id, operation, payload_json, status) VALUES ('LabResult', @labId, 'Delete', jsonb_build_object('clientUid', @clientUid), 'Pending');", connection, transaction);
+        queue.Parameters.AddWithValue("@labId", labId);
+        queue.Parameters.AddWithValue("@clientUid", clientUid);
+        await queue.ExecuteNonQueryAsync();
+        await transaction.CommitAsync();
+    }
+
     public async Task AttachLabToCheckUpAsync(LabAttachmentFormModel form)
     {
         await using var connection = await OpenConnectionAsync();

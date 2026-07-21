@@ -1332,6 +1332,7 @@ dd {
 }
 
 .lab-picker-card {
+  position: relative;
   flex: 0 0 210px;
   display: grid;
   gap: 0.35rem;
@@ -1348,6 +1349,53 @@ dd {
   border-radius: 8px;
   background: #fff;
   color: var(--ink);
+}
+
+.lab-card-actions {
+  position: absolute;
+  top: 0.45rem;
+  right: 0.45rem;
+  display: flex;
+  gap: 0.25rem;
+  z-index: 1;
+}
+
+.lab-card-actions form {
+  margin: 0;
+}
+
+.lab-card-action {
+  display: grid;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  place-items: center;
+  border: 1px solid #94a3b8;
+  border-radius: 5px;
+  background: #fff;
+  color: var(--primary-dark);
+  font-family: Arial, sans-serif;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.lab-card-action:hover {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.lab-card-action.delete {
+  border-color: #fca5a5;
+  color: #b91c1c;
+}
+
+.lab-card-action.delete:hover {
+  border-color: #ef4444;
+  background: #fff1f2;
+}
+
+.lab-picker-item strong {
+  padding-right: 3.7rem;
 }
 
 .lab-picker-card > .btn {

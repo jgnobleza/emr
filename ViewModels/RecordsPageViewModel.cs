@@ -14,6 +14,7 @@ public sealed class RecordsPageViewModel
     public PrintLayout DiagnosisLayout { get; set; } = PrintLayout.Default("Diagnosis");
     public RecordFormModel NewRecord { get; set; } = new();
     public LabResultFormModel NewLab { get; set; } = new();
+    public LabEditFormModel LabEdit { get; set; } = new();
     public LabAttachmentFormModel LabAttachment { get; set; } = new();
     public DiagnosisFormModel Diagnosis { get; set; } = new();
     public CheckupEditFormModel CheckupEdit { get; set; } = new();

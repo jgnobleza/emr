@@ -40,6 +40,10 @@ public sealed class EmrRepository
 
     public Task<int> CreateLabResultAsync(LabResultFormModel form, string fileUrl) => UseLocal ? _sqlite.CreateLabResultAsync(form, fileUrl) : _postgres.CreateLabResultAsync(form, fileUrl);
 
+    public Task UpdateLabResultAsync(LabEditFormModel form, string fileUrl) => UseLocal ? _sqlite.UpdateLabResultAsync(form, fileUrl) : _postgres.UpdateLabResultAsync(form, fileUrl);
+
+    public Task DeleteLabResultAsync(int labId, int patientId) => UseLocal ? _sqlite.DeleteLabResultAsync(labId, patientId) : _postgres.DeleteLabResultAsync(labId, patientId);
+
     public Task AttachLabToCheckUpAsync(LabAttachmentFormModel form) => UseLocal ? _sqlite.AttachLabToCheckUpAsync(form) : _postgres.AttachLabToCheckUpAsync(form);
 
     public Task<int> CreatePrescriptionAsync(PrescriptionFormModel form) => UseLocal ? _sqlite.CreatePrescriptionAsync(form) : _postgres.CreatePrescriptionAsync(form);
