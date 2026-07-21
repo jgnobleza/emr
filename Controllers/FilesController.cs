@@ -39,16 +39,17 @@ public sealed class FilesController : Controller
         }
         catch
         {
-            return await PublicDriveFile(fileId, cancellationToken);
+            return await PublicDriveFile(fileId, fileName, cancellationToken);
         }
 
         if (download is null)
         {
-            return await PublicDriveFile(fileId, cancellationToken);
+            return await PublicDriveFile(fileId, fileName, cancellationToken);
         }
 
         Response.Headers.CacheControl = "private, max-age=3600";
-        return File(download.Stream, download.ContentType, enableRangeProcessing: true);
+        Response.Headers.ContentDisposition = "inline";
+        return File(download.Stream, InlineContentType(fileName, download.ContentType), enableRangeProcessing: true);
     }
 
     private string? CachedDriveFilePath(string fileId)
@@ -64,7 +65,7 @@ public sealed class FilesController : Controller
         return path is null ? null : Path.GetFullPath(path);
     }
 
-    private async Task<IActionResult> PublicDriveFile(string fileId, CancellationToken cancellationToken)
+    private async Task<IActionResult> PublicDriveFile(string fileId, string? fileName, CancellationToken cancellationToken)
     {
         var client = _httpClientFactory.CreateClient();
         using var response = await client.GetAsync(GoogleDriveStorage.PublicDownloadUrl(fileId), HttpCompletionOption.ResponseHeadersRead, cancellationToken);
@@ -77,9 +78,10 @@ public sealed class FilesController : Controller
         var stream = new MemoryStream();
         await source.CopyToAsync(stream, cancellationToken);
         stream.Position = 0;
-        var contentType = response.Content.Headers.ContentType?.MediaType;
+        var contentType = InlineContentType(fileName, response.Content.Headers.ContentType?.MediaType);
         Response.Headers.CacheControl = "private, max-age=3600";
-        return File(stream, string.IsNullOrWhiteSpace(contentType) ? "application/pdf" : contentType, enableRangeProcessing: false);
+        Response.Headers.ContentDisposition = "inline";
+        return File(stream, contentType, enableRangeProcessing: false);
     }
 
     private static string SafePathSegment(string value)
@@ -98,4 +100,19 @@ public sealed class FilesController : Controller
             ".webp" => "image/webp",
             _ => "application/octet-stream"
         };
+
+    private static string InlineContentType(string? fileName, string? fallback)
+    {
+        var extensionType = string.IsNullOrWhiteSpace(fileName)
+            ? "application/octet-stream"
+            : ContentTypeFromExtension(Path.GetExtension(fileName));
+        if (!string.Equals(extensionType, "application/octet-stream", StringComparison.OrdinalIgnoreCase))
+        {
+            return extensionType;
+        }
+
+        return string.IsNullOrWhiteSpace(fallback) || fallback.Equals("application/octet-stream", StringComparison.OrdinalIgnoreCase)
+            ? "application/pdf"
+            : fallback;
+    }
 }
