@@ -1731,9 +1731,18 @@
   const pdfEmpty = document.getElementById("labPdfEmpty");
   const pdfTitle = document.getElementById("pdfTitle");
   const pdfPatient = document.getElementById("pdfPatient");
+  let pendingLabObjectUrl = "";
+
+  function clearPendingLabObjectUrl() {
+    if (pendingLabObjectUrl) {
+      URL.revokeObjectURL(pendingLabObjectUrl);
+      pendingLabObjectUrl = "";
+    }
+  }
 
   document.querySelectorAll("[data-lab-url]").forEach((button) => {
     button.addEventListener("click", () => {
+      clearPendingLabObjectUrl();
       const url = button.dataset.labUrl;
       const kind = button.dataset.labKind;
 
@@ -1809,7 +1818,13 @@
 
       try {
         if (window.medrecOfflineStore && typeof window.medrecOfflineStore.enqueuePost === "function") {
-          await window.medrecOfflineStore.enqueuePost(form);
+          const queuedPostId = await window.medrecOfflineStore.enqueuePost(form);
+          if (pendingLab) {
+            pendingLab.queueId = queuedPostId;
+          }
+          if (pendingLabUpdate) {
+            pendingLabUpdate.queueId = queuedPostId;
+          }
           if (pendingPatient) {
             savePendingPatient(pendingPatient);
             renderPendingPatients();
@@ -1820,6 +1835,7 @@
           } else if (pendingLab) {
             savePendingLab(pendingLab);
             renderPendingLabs();
+            selectPendingLab(pendingLab.localId);
           } else if (pendingLabUpdate) {
             applyPendingLabUpdate(pendingLabUpdate);
           } else if (pendingPrescription) {
@@ -2499,7 +2515,13 @@
     return wrapper;
   }
 
-  function showPendingLab(lab, button) {
+  function selectPendingLab(localId) {
+    const button = document.querySelector(`[data-local-lab-id="${cssEscape(localId)}"] .lab-picker-item`);
+    button?.click();
+  }
+
+  async function showPendingLab(lab, button) {
+    clearPendingLabObjectUrl();
     document.querySelectorAll(".lab-picker-item").forEach((item) => item.classList.remove("active"));
     button.classList.add("active");
 
@@ -2525,6 +2547,25 @@
         ? `${lab.fileName} is saved on this device and will upload when the connection returns.`
         : "This lab is saved on this device and will sync when the connection returns.";
     }
+
+    const queuedFile = await window.medrecOfflineStore?.getQueuedFile?.(lab.queueId, "NewLab.File");
+    if (!queuedFile?.blob || !button.classList.contains("active")) {
+      return;
+    }
+
+    pendingLabObjectUrl = URL.createObjectURL(queuedFile.blob);
+    const contentType = (queuedFile.type || queuedFile.blob.type || "").toLowerCase();
+    const fileName = (queuedFile.fileName || lab.fileName || "").toLowerCase();
+    const isImage = contentType.startsWith("image/") || /\.(jpe?g|png|gif|webp)$/.test(fileName);
+
+    if (isImage && image) {
+      image.src = pendingLabObjectUrl;
+      image.classList.remove("d-none");
+    } else if (pdf) {
+      pdf.src = pdfViewerUrl(pendingLabObjectUrl);
+      pdf.classList.remove("d-none");
+    }
+    empty?.classList.add("d-none");
   }
 
   function showPendingCheckup(record) {

@@ -283,6 +283,20 @@
       createdAtUtc: new Date().toISOString()
     });
     await notifyQueueChanged();
+    return id;
+  }
+
+  async function getQueuedFile(queueId, fieldName) {
+    if (!queueId) {
+      return null;
+    }
+
+    const item = await get("postQueue", queueId);
+    if (!item || !Array.isArray(item.files)) {
+      return null;
+    }
+
+    return item.files.find((file) => !fieldName || file.name === fieldName) || null;
   }
 
   async function replayPostQueue() {
@@ -373,6 +387,7 @@
   window.medrecOfflineStore = {
     refreshSnapshot,
     enqueuePost,
+    getQueuedFile,
     replayPostQueue,
     countQueuedPosts,
     getSnapshot: async () => {
