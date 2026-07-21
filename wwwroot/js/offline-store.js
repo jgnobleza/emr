@@ -310,13 +310,17 @@
         ? "Patient image must be 5 MB or smaller."
         : "Lab attachment must be 15 MB or smaller.");
     }
-    const storedFiles = files
+    let storedFiles = files
       .filter((file) => file instanceof File && file.name && file.size > 0)
       .map((file) => ({
         fileName: file.name,
         type: file.type || "application/octet-stream",
         blob: file
       }));
+    if (storedFiles.length === 0) {
+      const existing = await get("operations", operation.id);
+      storedFiles = existing?.files || [];
+    }
     await put("operations", {
       ...operation,
       files: storedFiles,

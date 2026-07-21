@@ -80,7 +80,11 @@
                                                 class="searchable-select-option"
                                                 data-prescription-patient-option
                                                 data-patient-id="@patient.Id"
-                                                data-patient-name="@patient.FullName">
+                                                data-patient-uid="@patient.ClientUid"
+                                                data-patient-name="@patient.FullName"
+                                                data-patient-address="@patient.Address"
+                                                data-patient-age="@patient.Age"
+                                                data-patient-sex="@patient.Sex">
                                             <span>@patient.FullName</span>
                                             <small>@patient.PatientNumber</small>
                                         </button>
@@ -95,7 +99,7 @@
                                 <option value="">None</option>
                                 @foreach (var record in Model.Records)
                                 {
-                                    <option value="@record.Id" data-patient-id="@record.PatientId">@record.VisitDate.ToString("MMM d, yyyy")</option>
+                                    <option value="@record.Id" data-patient-id="@record.PatientId" data-client-uid="@record.ClientUid">@record.VisitDate.ToString("MMM d, yyyy")</option>
                                 }
                             </select>
                             <span asp-validation-for="NewPrescription.ClinicalRecordId" class="text-danger"></span>
@@ -191,6 +195,25 @@
             </form>
         </div>
     </div>
+</div>
+
+<div data-offline-prescription-template class="d-none">
+    <partial name="_PrintCanvas" model="@(new medrec.ViewModels.PrintDocumentViewModel
+    {
+        ElementId = "offlinePrescriptionTemplate",
+        Layout = layout,
+        Prescription = new medrec.Models.Prescription
+        {
+            IssuedAt = DateTime.Today,
+            PatientName = "Patient",
+            Instructions = "Instructions",
+            Items = new List<medrec.Models.PrescriptionItem>
+            {
+                new() { Medication = "Medication", Dosage = "Dosage", Frequency = "Frequency", Duration = "Duration" }
+            }
+        },
+        Patient = new medrec.Models.Patient { FullName = "Patient", Age = 1 }
+    })" />
 </div>
 
 <div class="modal fade" id="prescriptionPreviewModal" tabindex="-1" aria-labelledby="prescriptionPreviewModalLabel" aria-hidden="true">

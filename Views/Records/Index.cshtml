@@ -200,6 +200,17 @@
     </div>
 }
 
+<div data-offline-diagnosis-template class="d-none">
+    <partial name="_PrintCanvas" model="@(new medrec.ViewModels.PrintDocumentViewModel
+    {
+        ElementId = "offlineDiagnosisTemplate",
+        CssClass = "medical-certificate",
+        Layout = layout,
+        Record = new medrec.Models.ClinicalRecord { VisitDate = DateTime.Today, Diagnosis = "Diagnosis", Notes = "Notes" },
+        Patient = new medrec.Models.Patient { FullName = "Patient", Age = 1 }
+    })" />
+</div>
+
 @if (selectedRecord is not null)
 {
     <div class="modal fade" id="checkupEditModal" tabindex="-1" aria-labelledby="checkupEditModalLabel" aria-hidden="true">
@@ -290,7 +301,11 @@
                             <select asp-for="NewRecord.PatientId" class="form-select">
                                 @foreach (var patient in Model.Patients)
                                 {
-                                    <option value="@patient.Id" data-client-uid="@patient.ClientUid">@patient.FullName</option>
+                                    <option value="@patient.Id"
+                                            data-client-uid="@patient.ClientUid"
+                                            data-address="@patient.Address"
+                                            data-age="@patient.Age"
+                                            data-sex="@patient.Sex">@patient.FullName</option>
                                 }
                             </select>
                             <span asp-validation-for="NewRecord.PatientId" class="text-danger"></span>

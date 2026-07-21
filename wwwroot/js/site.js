@@ -48,6 +48,109 @@
     window.print();
   };
 
+  function populateOfflinePrintCanvas(canvas, documentData) {
+    if (!canvas) return null;
+    canvas.dataset.offlinePrint = "true";
+    const dateLabel = formatCheckupDate(documentData.date);
+    const setText = (selector, value) => {
+      const target = canvas.querySelector(selector);
+      if (target) target.textContent = value || "-";
+    };
+
+    setText(".print-patient-name strong", documentData.patientName);
+    setText(".print-patient-address strong", documentData.patientAddress);
+    setText(".print-patient-age strong", documentData.patientAge ? String(documentData.patientAge) : "-");
+    setText(".print-patient-sex strong", documentData.patientSex);
+    setText(".print-patient-date strong", dateLabel);
+    const titleBlock = canvas.querySelector(".print-block-title");
+    let titleDate = titleBlock?.querySelector("span");
+    if (titleBlock && !titleDate) {
+      titleDate = document.createElement("span");
+      titleBlock.append(titleDate);
+    }
+    if (titleDate) titleDate.textContent = dateLabel;
+    return canvas;
+  }
+
+  function openOfflineDiagnosisPreview(record) {
+    const template = document.querySelector("[data-offline-diagnosis-template] .print-canvas");
+    const modalBody = document.getElementById("diagnosisPreviewContent");
+    const modal = document.getElementById("diagnosisPreviewModal");
+    if (!template || !modalBody || !modal) return;
+
+    const canvas = populateOfflinePrintCanvas(template.cloneNode(true), {
+      date: record.visitDate,
+      patientName: record.patientName,
+      patientAddress: record.patientAddress,
+      patientAge: record.patientAge,
+      patientSex: record.patientSex
+    });
+    canvas.id = "offlineDiagnosisPrint";
+    const body = canvas.querySelector(".print-block-body");
+    if (body) body.innerHTML = `<h3>Diagnosis</h3><p>${escapeHtml(record.diagnosis || "-")}</p>`;
+    const notes = canvas.querySelector(".print-block-notes");
+    if (notes) notes.innerHTML = `<h3>Notes</h3><p>${escapeHtml(record.notes || "-")}</p>`;
+    modalBody.replaceChildren(canvas);
+    bootstrap.Modal.getOrCreateInstance(modal).show();
+    requestAnimationFrame(() => window.fitPrintPreview(modalBody));
+  }
+
+  function openOfflinePrescriptionPreview(prescription) {
+    const template = document.querySelector("[data-offline-prescription-template] .print-canvas");
+    const modalBody = document.getElementById("prescriptionPreviewContent");
+    const modal = document.getElementById("prescriptionPreviewModal");
+    if (!template || !modalBody || !modal) return;
+
+    const canvas = populateOfflinePrintCanvas(template.cloneNode(true), {
+      date: prescription.issuedAt,
+      patientName: prescription.patientName,
+      patientAddress: prescription.patientAddress,
+      patientAge: prescription.patientAge,
+      patientSex: prescription.patientSex
+    });
+    canvas.id = "offlinePrescriptionPrint";
+    const body = canvas.querySelector(".print-block-body");
+    if (body) {
+      body.replaceChildren();
+      const items = document.createElement("div");
+      items.className = "prescription-print-items";
+      (prescription.items || []).forEach((item) => {
+        const row = document.createElement("div");
+        row.className = "prescription-print-item";
+        [item.medication, item.dosage, item.frequency, item.duration].forEach((value, index) => {
+          const field = document.createElement(index === 0 ? "strong" : "span");
+          field.textContent = value || "-";
+          row.append(field);
+        });
+        items.append(row);
+      });
+      body.append(items);
+    }
+    const notes = canvas.querySelector(".print-block-notes");
+    if (notes) notes.innerHTML = `<h3>Instructions</h3><p>${escapeHtml(prescription.instructions || "-")}</p>`;
+    modalBody.replaceChildren(canvas);
+    const prescriptionId = document.getElementById("prescriptionIdInput");
+    if (prescriptionId) prescriptionId.value = "";
+    bootstrap.Modal.getOrCreateInstance(modal).show();
+    requestAnimationFrame(() => window.fitPrintPreview(modalBody));
+  }
+
+  document.getElementById("diagnosisPrintButton")?.addEventListener("click", (event) => {
+    const canvas = document.querySelector("#diagnosisPreviewContent .print-canvas[data-offline-print]");
+    if (!canvas) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    window.printDocumentCanvas(canvas);
+  });
+
+  document.getElementById("printForm")?.addEventListener("submit", (event) => {
+    const canvas = document.querySelector("#prescriptionPreviewContent .print-canvas[data-offline-print]");
+    if (!canvas) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    window.printDocumentCanvas(canvas);
+  }, true);
+
   document.querySelectorAll("#prescriptionPreviewModal, #diagnosisPreviewModal").forEach((modal) => {
     modal.addEventListener("shown.bs.modal", () => {
       const container = modal.querySelector("#prescriptionPreviewContent, #diagnosisPreviewContent");
@@ -1576,15 +1679,15 @@
     const checkupSelect = form.querySelector("[data-prescription-checkup-select]");
     const wrapper = patientSearch.closest("[data-searchable-select]");
     const menu = wrapper ? wrapper.querySelector("[data-searchable-select-menu]") : null;
-    const options = menu ? Array.from(menu.querySelectorAll("[data-prescription-patient-option]")) : [];
+    const patientOptions = () => Array.from(menu?.querySelectorAll("[data-prescription-patient-option]") || []);
 
-    if (!patientIdField || !menu || options.length === 0) {
+    if (!patientIdField || !menu) {
       return;
     }
 
     function matchingPatientOption() {
       const searchValue = patientSearch.value.trim().toLocaleLowerCase();
-      return options.find((option) => (option.dataset.patientName || "").trim().toLocaleLowerCase() === searchValue);
+      return patientOptions().find((option) => (option.dataset.patientName || "").trim().toLocaleLowerCase() === searchValue);
     }
 
     function setMenuOpen(isOpen) {
@@ -1596,7 +1699,7 @@
       const searchValue = patientSearch.value.trim().toLocaleLowerCase();
       let visibleCount = 0;
 
-      options.forEach((option) => {
+      patientOptions().forEach((option) => {
         const name = (option.dataset.patientName || "").toLocaleLowerCase();
         const isVisible = !searchValue || name.includes(searchValue);
         option.hidden = !isVisible;
@@ -1640,6 +1743,10 @@
     function syncSelectedPatient() {
       const option = matchingPatientOption();
       patientIdField.value = option ? option.dataset.patientId || "" : "";
+      patientIdField.dataset.patientClientUid = option?.dataset.patientUid || "";
+      patientIdField.dataset.patientAddress = option?.dataset.patientAddress || "";
+      patientIdField.dataset.patientAge = option?.dataset.patientAge || "";
+      patientIdField.dataset.patientSex = option?.dataset.patientSex || "";
       filterPatientOptions();
       filterCheckups();
     }
@@ -1647,6 +1754,10 @@
     function choosePatient(option) {
       patientSearch.value = option.dataset.patientName || "";
       patientIdField.value = option.dataset.patientId || "";
+      patientIdField.dataset.patientClientUid = option.dataset.patientUid || "";
+      patientIdField.dataset.patientAddress = option.dataset.patientAddress || "";
+      patientIdField.dataset.patientAge = option.dataset.patientAge || "";
+      patientIdField.dataset.patientSex = option.dataset.patientSex || "";
       filterPatientOptions();
       filterCheckups();
       setMenuOpen(false);
@@ -1675,8 +1786,9 @@
       }
     });
 
-    options.forEach((option) => {
-      option.addEventListener("click", () => choosePatient(option));
+    menu.addEventListener("click", (event) => {
+      const option = event.target.closest("[data-prescription-patient-option]");
+      if (option) choosePatient(option);
     });
 
     document.addEventListener("click", (event) => {
@@ -1686,9 +1798,13 @@
     });
 
     if (patientIdField.value) {
-      const selectedOption = options.find((option) => option.dataset.patientId === patientIdField.value);
+      const selectedOption = patientOptions().find((option) => option.dataset.patientId === patientIdField.value);
       if (selectedOption) {
         patientSearch.value = selectedOption.dataset.patientName || patientSearch.value;
+        patientIdField.dataset.patientClientUid = selectedOption.dataset.patientUid || "";
+        patientIdField.dataset.patientAddress = selectedOption.dataset.patientAddress || "";
+        patientIdField.dataset.patientAge = selectedOption.dataset.patientAge || "";
+        patientIdField.dataset.patientSex = selectedOption.dataset.patientSex || "";
       }
       filterPatientOptions();
       filterCheckups();
@@ -1812,6 +1928,7 @@
       const formData = new FormData(form);
       const hasFile = Array.from(form.querySelectorAll("input[type='file']")).some((input) => input.files.length > 0);
       const pendingPatient = buildPendingPatient(form);
+      const pendingPatientUpdate = buildPendingPatientUpdate(form);
       const pendingCheckup = buildPendingCheckup(form);
       const pendingLab = buildPendingLab(form);
       const pendingLabUpdate = buildPendingLabUpdate(form);
@@ -1824,10 +1941,17 @@
 
       try {
         if (window.medrecOfflineStore && typeof window.medrecOfflineStore.enqueuePost === "function") {
-          const pendingDomainEntity = pendingPatient || pendingCheckup || pendingLab;
+          const pendingDomainEntity = pendingPatient || pendingPatientUpdate || pendingCheckup || pendingLab || pendingPrescription;
           let queuedPostId;
           if (pendingDomainEntity && typeof window.medrecOfflineStore.enqueueOperation === "function") {
-            const operation = buildOfflineOperation(pendingDomainEntity, pendingPatient ? "patient.upsert" : pendingCheckup ? "record.upsert" : "lab.upsert");
+            const operationType = pendingPatient || pendingPatientUpdate
+              ? "patient.upsert"
+              : pendingCheckup
+                ? "record.upsert"
+                : pendingLab
+                  ? "lab.upsert"
+                  : "prescription.upsert";
+            const operation = buildOfflineOperation(pendingDomainEntity, operationType);
             const files = Array.from(form.querySelectorAll("input[type='file']")).flatMap((input) => Array.from(input.files || []));
             queuedPostId = await window.medrecOfflineStore.enqueueOperation(operation, files);
           } else {
@@ -1839,11 +1963,17 @@
           if (pendingPatient) {
             pendingPatient.queueId = queuedPostId;
           }
+          if (pendingPatientUpdate) {
+            pendingPatientUpdate.queueId = queuedPostId;
+          }
           if (pendingLabUpdate) {
             pendingLabUpdate.queueId = queuedPostId;
           }
           if (pendingPatient) {
             savePendingPatient(pendingPatient);
+            renderPendingPatients();
+          } else if (pendingPatientUpdate) {
+            savePendingPatient(pendingPatientUpdate);
             renderPendingPatients();
           } else if (pendingCheckup) {
             savePendingCheckup(pendingCheckup);
@@ -1877,6 +2007,9 @@
         enqueueLocalPostItem({ action: form.action, method: form.method || "POST", fields });
         if (pendingPatient) {
           savePendingPatient(pendingPatient);
+          renderPendingPatients();
+        } else if (pendingPatientUpdate) {
+          savePendingPatient(pendingPatientUpdate);
           renderPendingPatients();
         } else if (pendingCheckup) {
           savePendingCheckup(pendingCheckup);
@@ -1943,6 +2076,7 @@
   renderPendingCheckups();
   renderPendingLabs();
   renderPendingPrescriptions();
+  syncPendingPrescriptionChoices();
 
   function antiForgeryToken() {
     return document.querySelector('input[name="__RequestVerificationToken"]')?.value || "";
@@ -2108,6 +2242,44 @@
     };
   }
 
+  function buildPendingPatientUpdate(form) {
+    if (!isPath(form.action, "/Patients/Update")) return null;
+    const localId = fieldValue(form, "EditPatient.Id");
+    const existing = readPendingPatients().find((patient) => patient.localId === localId);
+    if (!existing) return null;
+
+    return {
+      ...existing,
+      fullName: fieldValue(form, "EditPatient.FullName"),
+      age: Number(fieldValue(form, "EditPatient.Age") || 0),
+      address: fieldValue(form, "EditPatient.Address"),
+      sex: fieldValue(form, "EditPatient.Sex"),
+      civilStatus: fieldValue(form, "EditPatient.CivilStatus"),
+      contactNumber: fieldValue(form, "EditPatient.ContactNumber"),
+      occupation: fieldValue(form, "EditPatient.Occupation"),
+      company: fieldValue(form, "EditPatient.Company"),
+      email: fieldValue(form, "EditPatient.Email"),
+      partnerName: fieldValue(form, "EditPatient.PartnerName"),
+      partnerContactNumber: fieldValue(form, "EditPatient.PartnerContactNumber"),
+      referredBy: fieldValue(form, "EditPatient.ReferredBy"),
+      ageOfMenarche: numberOrNull(fieldValue(form, "EditPatient.AgeOfMenarche")),
+      menopauseAge: numberOrNull(fieldValue(form, "EditPatient.MenopauseAge")),
+      previousMenstrualPeriod: fieldValue(form, "EditPatient.PreviousMenstrualPeriod") || null,
+      periodCycleDays: numberOrNull(fieldValue(form, "EditPatient.PeriodCycleDays")),
+      periodDurationDays: numberOrNull(fieldValue(form, "EditPatient.PeriodDurationDays")),
+      menstrualAmount: fieldValue(form, "EditPatient.MenstrualAmount"),
+      menstrualPattern: fieldValue(form, "EditPatient.MenstrualPattern"),
+      sexuallyActive: boolOrNull(fieldValue(form, "EditPatient.SexuallyActive")),
+      contraceptionMethod: fieldValue(form, "EditPatient.ContraceptionMethod"),
+      heightCm: numberOrNull(fieldValue(form, "EditPatient.HeightCm")),
+      weightKg: numberOrNull(fieldValue(form, "EditPatient.WeightKg")),
+      bloodPressure: fieldValue(form, "EditPatient.BloodPressure"),
+      fetalHeartTone: fieldValue(form, "EditPatient.FetalHeartTone"),
+      lastMenstrualPeriod: fieldValue(form, "EditPatient.LastMenstrualPeriod") || null,
+      photoUrl: fieldValue(form, "EditPatient.PhotoUrl")
+    };
+  }
+
   function buildPendingCheckup(form) {
     if (!isPath(form.action, "/Records/Create")) {
       return null;
@@ -2129,6 +2301,9 @@
       patientId,
       patientClientUid,
       patientName: selectedPatient?.textContent?.trim() || "",
+      patientAddress: selectedPatient?.dataset.address || "",
+      patientAge: Number(selectedPatient?.dataset.age || 0),
+      patientSex: selectedPatient?.dataset.sex || "",
       visitDate,
       chiefComplaint,
       diagnosis: "",
@@ -2210,6 +2385,15 @@
     if (type === "lab.upsert") {
       payload.status = "Uploaded";
     }
+    if (type === "prescription.upsert") {
+      payload.clientUid = entity.localId;
+      delete payload.patientId;
+      delete payload.patientName;
+      delete payload.patientAddress;
+      delete payload.patientAge;
+      delete payload.patientSex;
+      delete payload.checkupLabel;
+    }
 
     return {
       id: entity.localId,
@@ -2278,11 +2462,17 @@
 
     const checkupSelect = form.querySelector("[data-prescription-checkup-select]");
     const selectedCheckup = checkupSelect?.selectedOptions?.[0];
+    const patientField = form.querySelector("[data-prescription-patient-id]");
 
     return {
       localId: crypto.randomUUID ? crypto.randomUUID() : `local-prescription-${Date.now()}-${Math.random()}`,
       patientId,
+      patientClientUid: patientField?.dataset.patientClientUid || patientId,
       patientName,
+      patientAddress: patientField?.dataset.patientAddress || "",
+      patientAge: Number(patientField?.dataset.patientAge || 0),
+      patientSex: patientField?.dataset.patientSex || "",
+      recordClientUid: selectedCheckup?.dataset.clientUid || null,
       checkupLabel: selectedCheckup && selectedCheckup.value ? selectedCheckup.textContent.trim() : "",
       issuedAt: new Date().toISOString(),
       instructions: fieldValue(form, "NewPrescription.Instructions"),
@@ -2456,6 +2646,7 @@
     readPendingPatients()
       .sort((left, right) => new Date(right.createdAtUtc) - new Date(left.createdAtUtc))
       .forEach((patient) => list.prepend(createPendingPatientCard(patient)));
+    syncPendingPrescriptionChoices();
   }
 
   function createPendingPatientCard(patient) {
@@ -2486,11 +2677,49 @@
       </dl>
       <div class="card-actions">
         <span class="status pending">Pending</span>
+        <button class="btn btn-outline-primary" type="button" data-edit-local-patient>Edit info</button>
         <a class="btn btn-outline-primary" href="/Records#offlinePatient=${encodeURIComponent(patient.localId)}">Check ups</a>
       </div>
     `;
+    article.querySelector("[data-edit-local-patient]")?.addEventListener("click", () => openPendingPatientEditor(patient));
     hydratePendingPatientPhoto(article, patient);
     return article;
+  }
+
+  function openPendingPatientEditor(patient) {
+    const values = {
+      "EditPatient.Id": patient.localId,
+      "EditPatient.FullName": patient.fullName,
+      "EditPatient.Age": patient.age,
+      "EditPatient.Address": patient.address,
+      "EditPatient.Sex": patient.sex,
+      "EditPatient.CivilStatus": patient.civilStatus,
+      "EditPatient.ContactNumber": patient.contactNumber,
+      "EditPatient.Occupation": patient.occupation,
+      "EditPatient.Company": patient.company,
+      "EditPatient.Email": patient.email,
+      "EditPatient.PartnerName": patient.partnerName,
+      "EditPatient.PartnerContactNumber": patient.partnerContactNumber,
+      "EditPatient.ReferredBy": patient.referredBy,
+      "EditPatient.AgeOfMenarche": patient.ageOfMenarche,
+      "EditPatient.MenopauseAge": patient.menopauseAge,
+      "EditPatient.PreviousMenstrualPeriod": patient.previousMenstrualPeriod,
+      "EditPatient.PeriodCycleDays": patient.periodCycleDays,
+      "EditPatient.PeriodDurationDays": patient.periodDurationDays,
+      "EditPatient.MenstrualAmount": patient.menstrualAmount,
+      "EditPatient.MenstrualPattern": patient.menstrualPattern,
+      "EditPatient.SexuallyActive": patient.sexuallyActive === null ? "" : String(patient.sexuallyActive),
+      "EditPatient.ContraceptionMethod": patient.contraceptionMethod,
+      "EditPatient.HeightCm": patient.heightCm,
+      "EditPatient.WeightKg": patient.weightKg,
+      "EditPatient.BloodPressure": patient.bloodPressure,
+      "EditPatient.FetalHeartTone": patient.fetalHeartTone,
+      "EditPatient.LastMenstrualPeriod": patient.lastMenstrualPeriod,
+      "EditPatient.PhotoUrl": patient.photoUrl
+    };
+    Object.entries(values).forEach(([name, value]) => setField(name, value));
+    const modal = document.getElementById("editPatientModal");
+    if (modal && window.bootstrap) bootstrap.Modal.getOrCreateInstance(modal).show();
   }
 
   async function hydratePendingPatientPhoto(article, patient) {
@@ -2535,6 +2764,9 @@
     if (patientSelect) {
       patientSelect.replaceChildren(new Option(patient.fullName || "Offline patient", patientUid, true, true));
       patientSelect.options[0].dataset.clientUid = patientUid;
+      patientSelect.options[0].dataset.address = patient.address || "";
+      patientSelect.options[0].dataset.age = String(patient.age || 0);
+      patientSelect.options[0].dataset.sex = patient.sex || "";
     }
 
     const labPatient = document.querySelector('[name="NewLab.PatientId"]');
@@ -2652,6 +2884,42 @@
       tabList.prepend(tab);
     });
     syncPendingCheckupOptions();
+    syncPendingPrescriptionChoices();
+  }
+
+  function syncPendingPrescriptionChoices() {
+    const menu = document.querySelector("[data-prescription-patient-search]")
+      ?.closest("[data-searchable-select]")
+      ?.querySelector("[data-searchable-select-menu]");
+    const checkupSelect = document.querySelector("[data-prescription-checkup-select]");
+
+    menu?.querySelectorAll("[data-local-prescription-patient]").forEach((option) => option.remove());
+    readPendingPatients().forEach((patient) => {
+      if (!menu) return;
+      const option = document.createElement("button");
+      option.type = "button";
+      option.className = "searchable-select-option";
+      option.dataset.prescriptionPatientOption = "";
+      option.dataset.localPrescriptionPatient = patient.localId;
+      option.dataset.patientId = patient.localId;
+      option.dataset.patientUid = patient.localId;
+      option.dataset.patientName = patient.fullName || "Offline patient";
+      option.dataset.patientAddress = patient.address || "";
+      option.dataset.patientAge = String(patient.age || 0);
+      option.dataset.patientSex = patient.sex || "";
+      option.innerHTML = `<span>${escapeHtml(patient.fullName || "Offline patient")}</span><small>Waiting to sync</small>`;
+      menu.append(option);
+    });
+
+    checkupSelect?.querySelectorAll("option[data-local-prescription-checkup]").forEach((option) => option.remove());
+    readPendingCheckups().forEach((record) => {
+      if (!checkupSelect) return;
+      const option = new Option(formatCheckupDate(record.visitDate), record.localId);
+      option.dataset.localPrescriptionCheckup = record.localId;
+      option.dataset.patientId = record.patientId;
+      option.dataset.clientUid = record.localId;
+      checkupSelect.append(option);
+    });
   }
 
   function renderPendingLabs() {
@@ -2706,9 +2974,10 @@
           </div>
           <span class="prescription-date">Waiting to sync</span>
         </div>
-        <button class="btn btn-outline-secondary" type="button" disabled>View after sync</button>
+        <button class="btn btn-outline-secondary" type="button" data-view-local-prescription>View</button>
       </div>
     `;
+    article.querySelector("[data-view-local-prescription]")?.addEventListener("click", () => openOfflinePrescriptionPreview(prescription));
     return article;
   }
 
@@ -2795,7 +3064,26 @@
     document.querySelector(`[data-local-checkup-id="${cssEscape(record.localId)}"]`)?.classList.add("active");
     const labRecordSelect = document.querySelector('[name="NewLab.ClinicalRecordId"]');
     if (labRecordSelect) labRecordSelect.value = record.localId;
+    document.querySelectorAll(".lab-picker-card:not([data-local-lab-id])").forEach((card) => {
+      card.hidden = true;
+    });
+    clearPendingLabObjectUrl();
+    if (pdfTitle) pdfTitle.textContent = "No laboratories yet on this checkup";
+    if (pdfPatient) pdfPatient.textContent = record.patientName || "Patient";
+    if (pdfFrame) {
+      pdfFrame.src = "about:blank";
+      pdfFrame.classList.add("d-none");
+    }
+    if (labImageFrame) {
+      labImageFrame.removeAttribute("src");
+      labImageFrame.classList.add("d-none");
+    }
+    if (pdfEmpty) {
+      pdfEmpty.textContent = "No laboratories yet on this checkup";
+      pdfEmpty.classList.remove("d-none");
+    }
     renderPendingLabs();
+    document.querySelector("[data-local-lab-id] .lab-picker-item")?.click();
 
     const pane = document.querySelector(".viewer-pane");
     if (!pane) {
@@ -2829,12 +3117,14 @@
           <textarea id="LocalNotes" name="Notes" class="form-control diagnosis-textarea" rows="5">${escapeHtml(record.notes || "")}</textarea>
         </div>
         <div class="form-actions">
+          <button class="btn btn-outline-secondary btn-compact" type="button" data-local-diagnosis-preview>View diagnosis</button>
           <button class="btn btn-primary btn-compact" type="submit">Save diagnosis</button>
         </div>
       </form>
       <div class="system-alert">This checkup is saved on this device and will sync when the connection returns.</div>
     `;
     bindLocalCheckupDiagnosisForm(pane);
+    pane.querySelector("[data-local-diagnosis-preview]")?.addEventListener("click", () => openOfflineDiagnosisPreview(record));
 
     window.bootstrap?.Modal.getInstance(document.getElementById("recordModal"))?.hide();
   }
@@ -2845,7 +3135,7 @@
       return;
     }
 
-    form.addEventListener("submit", (event) => {
+    form.addEventListener("submit", async (event) => {
       event.preventDefault();
       const localId = form.dataset.localCheckupId;
       const items = readPendingCheckups();
@@ -2857,6 +3147,9 @@
       record.diagnosis = fieldValue(form, "Diagnosis");
       record.notes = fieldValue(form, "Notes");
       writePendingCheckups(items);
+      if (window.medrecOfflineStore?.enqueueOperation) {
+        await window.medrecOfflineStore.enqueueOperation(buildOfflineOperation(record, "record.upsert"), []);
+      }
       showLocalFlash("Diagnosis saved on this device.");
     });
   }
