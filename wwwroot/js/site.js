@@ -2304,6 +2304,7 @@
       patientAddress: selectedPatient?.dataset.address || "",
       patientAge: Number(selectedPatient?.dataset.age || 0),
       patientSex: selectedPatient?.dataset.sex || "",
+      lastMenstrualPeriod: selectedPatient?.dataset.lastMenstrualPeriod || "",
       visitDate,
       chiefComplaint,
       diagnosis: "",
@@ -2767,6 +2768,7 @@
       patientSelect.options[0].dataset.address = patient.address || "";
       patientSelect.options[0].dataset.age = String(patient.age || 0);
       patientSelect.options[0].dataset.sex = patient.sex || "";
+      patientSelect.options[0].dataset.lastMenstrualPeriod = patient.lastMenstrualPeriod || "";
     }
 
     const labPatient = document.querySelector('[name="NewLab.PatientId"]');
@@ -3103,8 +3105,8 @@
         <div><dt>Weight</dt><dd>${decimalLabel(record.weightKg, "kg")}</dd></div>
         <div><dt>BP</dt><dd>${escapeHtml(textLabel(record.bloodPressure))}</dd></div>
         <div><dt>Fetal heart rate</dt><dd>${escapeHtml(textLabel(record.fetalHeartRate))}</dd></div>
-        <div><dt>Age of Gestation</dt><dd>-</dd></div>
-        <div><dt>Estimated Due Date</dt><dd>-</dd></div>
+        <div><dt>Age of Gestation</dt><dd>${escapeHtml(aogLabel(record.lastMenstrualPeriod))}</dd></div>
+        <div><dt>Estimated Due Date</dt><dd>${escapeHtml(eddLabel(record.lastMenstrualPeriod))}</dd></div>
         <div><dt>Temperature</dt><dd>${decimalLabel(record.temperatureC, "C")}</dd></div>
       </dl>
       <form class="diagnosis-form" data-local-checkup-diagnosis-form data-local-checkup-id="${escapeHtml(record.localId)}">

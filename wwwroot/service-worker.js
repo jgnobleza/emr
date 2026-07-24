@@ -1,5 +1,5 @@
-const CACHE_NAME = "medrec-offline-v13";
-const RUNTIME_CACHE = "medrec-runtime-v13";
+const CACHE_NAME = "medrec-offline-v14";
+const RUNTIME_CACHE = "medrec-runtime-v14";
 const CORE_ASSETS = [
   "/Account/Login",
   "/Account/Login?returnUrl=%2F",

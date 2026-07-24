@@ -44,7 +44,7 @@ Do not use a copied local folder or a different address for offline setup. Offli
 
 After the footer shows the offline cache is ready, MedRec can be closed and opened again later from the same browser, even after a device restart, as long as browser site data was not cleared.
 
-## Using on a Laptop
+## Using on a Laptop/Tablet
 
 Recommended browsers: Microsoft Edge or Google Chrome.
 

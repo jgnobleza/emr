@@ -10,6 +10,7 @@
     string PdfViewerUrl(string url) => $"{url}#toolbar=0&navpanes=0&scrollbar=1&view=FitH";
     bool IsImageUrl(string? url) => !string.IsNullOrWhiteSpace(url)
         && new[] { ".jpg", ".jpeg", ".png", ".gif", ".webp" }.Contains(System.IO.Path.GetExtension(url).ToLowerInvariant());
+    string DateOnlyValue(DateOnly? value) => value?.ToString("yyyy-MM-dd") ?? string.Empty;
     string InputDate(DateTime date) => date.ToString("yyyy-MM-ddTHH:mm");
     string DecimalLabel(decimal? value, string unit) => value.HasValue ? $"{value.Value:0.##} {unit}" : "-";
     string TextLabel(string? value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
@@ -305,7 +306,8 @@
                                             data-client-uid="@patient.ClientUid"
                                             data-address="@patient.Address"
                                             data-age="@patient.Age"
-                                            data-sex="@patient.Sex">@patient.FullName</option>
+                                            data-sex="@patient.Sex"
+                                            data-last-menstrual-period="@DateOnlyValue(patient.LastMenstrualPeriod)">@patient.FullName</option>
                                 }
                             </select>
                             <span asp-validation-for="NewRecord.PatientId" class="text-danger"></span>
